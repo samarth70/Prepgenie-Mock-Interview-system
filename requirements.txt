@@ -1,5 +1,5 @@
+tensorflow
 PyPDF2
 google-generative-ai
-tensorflow
 SpeechRecognition
 gtts
