@@ -1,4 +1,5 @@
 tensorflow
+transformers
 PyPDF2
 google-generativeai
 SpeechRecognition
