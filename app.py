@@ -15,7 +15,7 @@ import time
 from dotenv import load_dotenv
 load_dotenv()
 
-os.system('pip install --upgrade pip')
+
 
 # no wide mode
 st.set_page_config(page_title="Streamlit App", page_icon=":shark:", layout="centered", initial_sidebar_state="auto")
