@@ -1,4 +1,4 @@
-tensorflow
+tensorflow == 2.17.0
 tf-keras
 transformers
 PyPDF2
@@ -6,4 +6,4 @@ google-generativeai
 SpeechRecognition
 gTTs
 python-dotenv
-PyAudio==0.2.14
+PyAudio
