@@ -6,4 +6,4 @@ google-generativeai
 SpeechRecognition
 gTTs
 python-dotenv
-python3-pyaudio
+PyAudio==0.2.11
