@@ -5,5 +5,4 @@ PyPDF2
 google-generativeai
 SpeechRecognition
 gTTs
-portaudio19-dev
-python-pyaudio
+PyAudio==0.2.14
