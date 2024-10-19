@@ -95,14 +95,14 @@ def generate_overall_feedback(data, percent, answer, questions):
 def store_audio_text():
     r = sr.Recognizer()
     with sr.Microphone() as source:
-        st.error("Speak now")
+        st.write("Speak now")
         audio = r.listen(source)
         try:
             text = r.recognize_google(audio)
             # st.success(f"Your Answer: {text}")
             return text
         except:
-            st.error("Sorry could not recognize your voice")
+            st.write("Sorry could not recognize your voice")
             return " "
         
 uploaded_file = st.file_uploader("Upload your resume in simple Document Format", type=["pdf"])
