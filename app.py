@@ -106,8 +106,10 @@ def generate_overall_feedback(data, percent, answer, questions):
     #         return " "
 def store_audio_text():
     try:
+        for index, name in enumerate(sr.Microphone.list_microphone_names()):
+            print(f"Microphone with index {index}: {name}")
         recognizer = sr.Recognizer()
-        with sr.Microphone() as source:
+        with sr.Microphone(device_index=0) as source:
             st.write("Listening...")
             audio = recognizer.listen(source)
             text = recognizer.recognize_google(audio)
