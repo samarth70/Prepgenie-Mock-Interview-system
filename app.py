@@ -92,18 +92,33 @@ def generate_overall_feedback(data, percent, answer, questions):
     response.resolve()
     return response.text
 
+# def store_audio_text():
+    # r = sr.Recognizer()
+    # with sr.Microphone() as source:
+    #     st.write("Speak now")
+    #     audio = r.listen(source)
+    #     try:
+    #         text = r.recognize_google(audio)
+    #         # st.success(f"Your Answer: {text}")
+    #         return text
+    #     except:
+    #         st.write("Sorry could not recognize your voice")
+    #         return " "
 def store_audio_text():
-    r = sr.Recognizer()
-    with sr.Microphone() as source:
-        st.write("Speak now")
-        audio = r.listen(source)
-        try:
-            text = r.recognize_google(audio)
-            # st.success(f"Your Answer: {text}")
+    try:
+        recognizer = sr.Recognizer()
+        with sr.Microphone() as source:
+            st.write("Listening...")
+            audio = recognizer.listen(source)
+            text = recognizer.recognize_google(audio)
+            st.write(f"Your Answer: {text}")
             return text
-        except:
-            st.write("Sorry could not recognize your voice")
-            return " "
+    except sr.RequestError as e:
+        st.error("API unavailable or unresponsive")
+    except sr.UnknownValueError:
+        st.error("Unable to recognize speech")
+    except OSError:
+        st.error("Microphone not available or not accessible in this environment")    
         
 uploaded_file = st.file_uploader("Upload your resume in simple Document Format", type=["pdf"])
 roles_applied = []
