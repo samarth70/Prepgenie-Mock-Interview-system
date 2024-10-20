@@ -7,7 +7,7 @@ from firebase_admin import credentials
 from firebase_admin import auth
 
 # Initialize Firebase Admin once (outside the run function)
-cred = credentials.Certificate("pondering-5ff7c-c033cfade319.json")
+cred = credentials.Certificate("PrepGenie/login module/pondering-5ff7c-c033cfade319.json")
 # firebase_admin.initialize_app(cred)
 
 import account, chat, interview
