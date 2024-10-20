@@ -1,6 +1,7 @@
 tensorflow == 2.17.0
 tf-keras
 streamlit-option-menu
+firebase-admin
 transformers
 PyPDF2
 google-generativeai
