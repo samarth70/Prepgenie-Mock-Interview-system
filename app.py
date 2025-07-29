@@ -702,45 +702,45 @@ def login(email, password):
         )
 
 def signup(email, password, username):
-     if not FIREBASE_AVAILABLE:
+    
+    if not FIREBASE_AVAILABLE:
         return (
-            "Firebase not initialized. Signup unavailable.",
-            gr.update(visible=True), gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=False), "", "", "", "", ""
-        )
+        "Firebase not initialized. Signup unavailable.",
+        gr.update(visible=True), gr.update(visible=False), gr.update(visible=False),
+        gr.update(visible=False), "", "", "", "", "")
     if not email or not password or not username:
         return (
-            "Please fill all fields.",
-            gr.update(visible=False), gr.update(visible=True), gr.update(visible=False),
-            gr.update(visible=False), email, password, username, "", ""
+        "Please fill all fields.",
+        gr.update(visible=False), gr.update(visible=True), gr.update(visible=False),
+        gr.update(visible=False), email, password, username, "", ""
         )
     try:
         user = auth.create_user(email=email, password=password, uid=username, display_name=username)
         success_msg = f"Account created successfully for {username}!"
         return (
-            success_msg,
-            gr.update(visible=True), gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=False), "", "", "", user.uid, user.email
+        success_msg,
+        gr.update(visible=True), gr.update(visible=False), gr.update(visible=False),
+        gr.update(visible=False), "", "", "", user.uid, user.email
         )
     except auth.UidAlreadyExistsError:
         return (
-            "Username already exists. Please choose another.",
-            gr.update(visible=False), gr.update(visible=True), gr.update(visible=False),
-            gr.update(visible=False), email, password, username, "", ""
+        "Username already exists. Please choose another.",
+        gr.update(visible=False), gr.update(visible=True), gr.update(visible=False),
+        gr.update(visible=False), email, password, username, "", ""
         )
     except auth.EmailAlreadyExistsError:
         return (
-            "Email already exists. Please use another email.",
-            gr.update(visible=False), gr.update(visible=True), gr.update(visible=False),
-            gr.update(visible=False), email, password, username, "", ""
+        "Email already exists. Please use another email.",
+        gr.update(visible=False), gr.update(visible=True), gr.update(visible=False),
+        gr.update(visible=False), email, password, username, "", ""
         )
     except Exception as e:
         error_msg = f"Signup failed: {str(e)}"
         print(error_msg)
         return (
-            error_msg,
-            gr.update(visible=False), gr.update(visible=True), gr.update(visible=False),
-            gr.update(visible=False), email, password, username, "", ""
+        error_msg,
+        gr.update(visible=False), gr.update(visible=True), gr.update(visible=False),
+        gr.update(visible=False), email, password, username, "", ""
         )
 
 def logout():
