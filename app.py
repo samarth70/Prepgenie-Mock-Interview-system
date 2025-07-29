@@ -245,17 +245,32 @@ def process_resume(file_obj):
     except Exception as e:
         return f"Error processing file: {str(e)}", gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), None
 
+# In PrepGenie/app.py, replace the existing start_interview function with this:
+
 def start_interview(roles, processed_resume_data):
     """Starts the interview process."""
     if not roles or not processed_resume_data:
-        return "Please select a role and ensure resume is processed.", "", [], [], {}, {}, gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
+        # Return initial/empty states for UI components
+        return (
+            "Please select a role and ensure resume is processed.",
+            "", # initial question
+            gr.update(visible=False), # audio_input
+            gr.update(visible=False), # submit_answer_btn
+            gr.update(visible=False), # next_question_btn
+            gr.update(visible=False), # submit_interview_btn
+            gr.update(visible=False), # feedback_display
+            gr.update(visible=False), # metrics_display
+            gr.update(visible=False), # question_display (redundant, but matches output count)
+            gr.update(visible=False), # answer_instructions
+            {} # interview_state (empty dict)
+        )
 
     try:
         questions = generate_questions(roles, processed_resume_data)
         initial_question = questions[0] if questions else "Could you please introduce yourself?"
 
         # Initialize state for the interview
-        interview_state = {
+        interview_state_data = {
             "questions": questions,
             "current_q_index": 0,
             "answers": [],
@@ -265,27 +280,36 @@ def start_interview(roles, processed_resume_data):
             "resume_data": processed_resume_data
         }
 
+        # Return values matching the outputs list for start_interview_btn.click
         return (
             "Interview started. Please answer the first question.",
             initial_question,
-            questions,
-            [], # answers
-            {}, # interactions
-            {}, # metrics (initially empty)
-            gr.update(visible=True), # Audio input
-            gr.update(visible=True), # Submit Answer button
-            gr.update(visible=True), # Next Question button
-            gr.update(visible=False), # Submit Interview button (hidden initially)
-            gr.update(visible=False), # Feedback textbox
-            gr.update(visible=False), # Metrics display
-            gr.update(visible=False), # Evaluation button (hidden initially)
-            gr.update(visible=True), # Question display
-            gr.update(visible=True), # Answer instructions
-            interview_state
+            gr.update(visible=True), # audio_input visible
+            gr.update(visible=True), # submit_answer_btn visible
+            gr.update(visible=True), # next_question_btn visible
+            gr.update(visible=False), # submit_interview_btn hidden initially
+            gr.update(visible=False), # feedback_display hidden initially
+            gr.update(visible=False), # metrics_display hidden initially
+            gr.update(visible=True), # question_display visible
+            gr.update(visible=True), # answer_instructions visible
+            interview_state_data # Update the interview_state object
         )
     except Exception as e:
-        return f"Error starting interview: {str(e)}", "", [], [], {}, {}, gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), None
-
+        error_msg = f"Error starting interview: {str(e)}"
+        print(error_msg) # Log the error
+        return (
+            error_msg,
+            "", # No question
+            gr.update(visible=False), # Hide components
+            gr.update(visible=False),
+            gr.update(visible=False),
+            gr.update(visible=False),
+            gr.update(visible=False),
+            gr.update(visible=False),
+            gr.update(visible=False), # question_display
+            gr.update(visible=False), # answer_instructions
+            {} # Empty state on error
+        )
 def submit_answer(audio, interview_state):
     """Handles submitting an answer via audio."""
     if not audio or not interview_state:
@@ -451,34 +475,65 @@ with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
 
     # --- Event Listeners ---
 
-    # Process Resume
     process_btn.click(
         fn=process_resume,
         inputs=[file_upload],
-        outputs=[file_status, role_selection, start_interview_btn, question_display, answer_instructions, audio_input, submit_answer_btn, next_question_btn, submit_interview_btn, answer_display, feedback_display, metrics_display, processed_resume_data]
+        outputs=[
+            file_status, role_selection, start_interview_btn,
+            question_display, answer_instructions, audio_input,
+            submit_answer_btn, next_question_btn, submit_interview_btn,
+            answer_display, feedback_display, metrics_display,
+            processed_resume_data # Pass processed data for next step
+        ]
     )
 
     # Start Interview
     start_interview_btn.click(
         fn=start_interview,
         inputs=[role_selection, processed_resume_data],
-        outputs=[file_status, question_display, interview_state["questions"], interview_state["answers"], interview_state["interactions"], interview_state["metrics_list"], audio_input, submit_answer_btn, next_question_btn, submit_interview_btn, feedback_display, metrics_display, interview_state, question_display, answer_instructions, interview_state]
+        outputs=[
+            file_status,           # Status message
+            question_display,      # First question text
+            audio_input,           # Audio input visibility
+            submit_answer_btn,     # Submit Answer button visibility
+            next_question_btn,     # Next Question button visibility
+            submit_interview_btn,  # Submit Interview button visibility (initially hidden)
+            feedback_display,      # Feedback textbox (initially hidden/empty)
+            metrics_display,       # Metrics display (initially hidden/empty)
+            question_display,      # (Duplicate reference, likely not needed, but kept for structure)
+            answer_instructions,   # Answer instructions visibility
+            interview_state        # THE KEY CHANGE: Update the entire state object
+        ]
     )
+
+
 
     # Submit Answer
     submit_answer_btn.click(
         fn=submit_answer,
         inputs=[audio_input, interview_state],
-        outputs=[file_status, answer_display, interview_state, feedback_display, feedback_display, metrics_display, metrics_display, audio_input, submit_answer_btn, next_question_btn, submit_interview_btn, question_display, answer_instructions]
+        outputs=[
+            file_status, answer_display, interview_state,
+            feedback_display, feedback_display, # Update value and visibility
+            metrics_display, metrics_display,   # Update value and visibility
+            audio_input, submit_answer_btn, next_question_btn,
+            submit_interview_btn, question_display, answer_instructions
+        ]
     )
-
+    
     # Next Question
     next_question_btn.click(
         fn=next_question,
         inputs=[interview_state],
-        outputs=[file_status, question_display, interview_state, audio_input, submit_answer_btn, next_question_btn, feedback_display, metrics_display, submit_interview_btn, question_display, answer_instructions, answer_display, metrics_display]
+        outputs=[
+            file_status, question_display, interview_state,
+            audio_input, submit_answer_btn, next_question_btn,
+            feedback_display, metrics_display, submit_interview_btn,
+            question_display, answer_instructions,
+            answer_display, metrics_display # Clear previous answer/metrics display
+        ]
     )
-
+    
     # Submit Interview (Placeholder for evaluation trigger)
     submit_interview_btn.click(
         fn=submit_interview,
