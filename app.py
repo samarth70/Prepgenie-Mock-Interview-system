@@ -69,8 +69,8 @@ FIREBASE_APP = initialize_firebase()
 FIREBASE_AVAILABLE = FIREBASE_APP is not None
 
 # Configure Generative AI
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY") or "YOUR_DEFAULT_API_KEY_HERE")
-text_model = genai.GenerativeModel("gemini-pro")
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+text_model = genai.GenerativeModel("gemini-2.5-flash")
 
 # Load BERT model and tokenizer
 try:
