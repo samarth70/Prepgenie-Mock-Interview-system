@@ -755,11 +755,11 @@ def login(email, password):
         )
 
 def signup(email, password, username):
-     if not FIREBASE_AVAILABLE:
+    if not FIREBASE_AVAILABLE:
         return (
-            "Firebase not initialized. Signup unavailable.",
-            gr.update(visible=True), gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=False), "", "", "", "", ""
+        "Firebase not initialized. Signup unavailable.",
+        gr.update(visible=True), gr.update(visible=False), gr.update(visible=False),
+        gr.update(visible=False), "", "", "", "", ""
         )
     if not email or not password or not username:
         return (
