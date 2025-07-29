@@ -8,6 +8,8 @@ import google.generativeai as genai
 from transformers import BertTokenizer, TFBertModel
 import numpy as np
 import speech_recognition as sr
+# from gtts import gTTS # Not used directly in main app logic here
+# import pygame # Not used directly in main app logic here
 import time
 from dotenv import load_dotenv
 import soundfile as sf # For saving audio numpy array
@@ -20,39 +22,57 @@ from firebase_admin import credentials, auth, firestore
 # Load environment variables
 load_dotenv()
 
-# Initialize Firebase Admin SDK (Use environment variable for credentials path or default)
-firebase_credentials_path = os.getenv("prepgenie-64134-firebase-adminsdk-fbsvc-3370ac4ab9.json")
-if not firebase_admin._apps:
+# --- Robust Firebase Initialization ---
+def initialize_firebase():
+    """Attempts to initialize Firebase Admin SDK."""
+    if firebase_admin._apps:
+        print("Firebase app already initialized.")
+        return firebase_admin.get_app()
+
+    cred = None
     try:
-        # Try loading from file path first
-        cred = credentials.Certificate(firebase_credentials_path)
-        firebase_admin.initialize_app(cred)
-        print("Firebase Admin initialized successfully using credentials file.")
-    except FileNotFoundError:
-        print(f"Firebase credentials file not found at {firebase_credentials_path}. Trying environment variable...")
-        try:
-            # Fallback: Try loading from environment variable (expects JSON string)
-            firebase_credentials_json = os.getenv("FIREBASE_CREDENTIALS_JSON")
-            if firebase_credentials_json:
-                cred_dict = json.loads(firebase_credentials_json)
-                cred = credentials.Certificate(cred_dict)
-                firebase_admin.initialize_app(cred)
-                print("Firebase Admin initialized successfully using environment variable.")
-            else:
-                raise ValueError("FIREBASE_CREDENTIALS_JSON environment variable not set.")
-        except (json.JSONDecodeError, ValueError) as e:
-            print(f"Error initializing Firebase Admin: {e}")
-            print("Firebase authentication will not be available.")
-            # You might want to handle this case differently, e.g., disable features or show an error
+        # Method 1: Use specific credentials file path
+        firebase_credentials_path = os.getenv("prepgenie-64134-firebase-adminsdk-fbsvc-3370ac4ab9.json")
+        if os.path.exists(firebase_credentials_path):
+            print(f"Initializing Firebase with credentials file: {firebase_credentials_path}")
+            cred = credentials.Certificate(firebase_credentials_path)
+            firebase_app = firebase_admin.initialize_app(cred)
+            print("Firebase Admin initialized successfully using credentials file.")
+            return firebase_app
+        else:
+             print(f"Firebase credentials file not found at {firebase_credentials_path}")
     except Exception as e:
-        print(f"Unexpected error initializing Firebase Admin: {e}")
-        print("Firebase authentication will not be available.")
+        print(f"Failed to initialize Firebase using credentials file: {e}")
+
+    try:
+        # Method 2: Use JSON string from environment variable (useful for cloud deployments)
+        firebase_credentials_json = os.getenv("FIREBASE_CREDENTIALS_JSON")
+        if firebase_credentials_json:
+            print("Initializing Firebase with credentials from FIREBASE_CREDENTIALS_JSON environment variable.")
+            cred_dict = json.loads(firebase_credentials_json)
+            cred = credentials.Certificate(cred_dict)
+            firebase_app = firebase_admin.initialize_app(cred)
+            print("Firebase Admin initialized successfully using FIREBASE_CREDENTIALS_JSON.")
+            return firebase_app
+        else:
+             print("FIREBASE_CREDENTIALS_JSON environment variable not set.")
+    except (json.JSONDecodeError, ValueError) as e:
+        print(f"Error parsing FIREBASE_CREDENTIALS_JSON: {e}")
+    except Exception as e:
+        print(f"Failed to initialize Firebase using FIREBASE_CREDENTIALS_JSON: {e}")
+
+    print("Warning: Firebase Admin SDK could not be initialized. Authentication features will not work.")
+    return None # Indicate failure
+
+# --- Initialize Firebase when the module is loaded ---
+FIREBASE_APP = initialize_firebase()
+FIREBASE_AVAILABLE = FIREBASE_APP is not None
 
 # Configure Generative AI
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY") or "YOUR_DEFAULT_API_KEY_HERE") # Use environment variable or set a default
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY")) # Use environment variable or set a default
 text_model = genai.GenerativeModel("gemini-pro")
 
-# Load BERT model and tokenizer (Consider lazy loading if performance is an issue)
+
 try:
     model = TFBertModel.from_pretrained("bert-base-uncased")
     tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
@@ -518,58 +538,69 @@ def submit_interview(interview_state):
 # --- Login and Navigation Logic (Firebase Integrated) ---
 
 def login(email, password):
-    # Simple mock login using Firebase - replace with real authentication logic
-    # For demo, accept any non-empty username/password
-    # In a real app, you would verify the password against Firebase Auth (server-side)
-    # This is a simplified placeholder that checks if user exists.
+    # Check if Firebase is available
+    if not FIREBASE_AVAILABLE:
+        return ("Firebase not initialized. Login unavailable.", gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), email, password, "", "")
+
     if not email or not password:
-        return ("Please enter email and password.", gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), email, password, "")
+        return ("Please enter email and password.", gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), email, password, "", "")
 
     try:
-        # Attempt to get user by email (this checks existence, not password in client-side code)
-        # A real implementation would involve secure server-side verification.
+        # Attempt to get user by email (checks existence)
+        # Note: This does NOT verify the password in a secure way for a client-side app.
+        # A production app needs server-side verification or ID token validation.
         user = auth.get_user_by_email(email)
         welcome_msg = f"Welcome, {user.display_name or user.uid}!" # Use display name or UID
-        # Show main app, hide login
+        # Show main app, hide login/signup
         return (welcome_msg,
                 gr.update(visible=False), # login_section
+                gr.update(visible=False), # signup_section
                 gr.update(visible=True),  # main_app
                 "", "", # Clear email/password inputs
-                user.uid) # Update user_state with UID
+                user.uid, # Update user_state with UID
+                user.email) # Update user_email_state
     except auth.UserNotFoundError:
-        return ("User not found. Please check your email or sign up.", gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), email, password, "")
+        return ("User not found. Please check your email or sign up.", gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), email, password, "", "")
     except Exception as e:
         error_msg = f"Login failed: {str(e)}"
         print(error_msg)
-        return (error_msg, gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), email, password, "")
+        return (error_msg, gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), email, password, "", "")
 
 def signup(email, password, username):
+    # Check if Firebase is available
+     if not FIREBASE_AVAILABLE:
+        return ("Firebase not initialized. Signup unavailable.", gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), email, password, username, "", "")
+
     if not email or not password or not username:
-        return ("Please fill all fields.", gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), email, password, username, "")
+        return ("Please fill all fields.", gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), email, password, username, "", "")
 
     try:
         # Create user in Firebase
         user = auth.create_user(email=email, password=password, uid=username, display_name=username)
         success_msg = f"Account created successfully for {username}!"
-        # Automatically log the user in or prompt for login
-        # Here, we'll just show success and keep them on the signup form
-        return (success_msg, gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), "", "", "", user.uid) # Clear inputs, set user state
+        # Switch to login view after successful signup
+        return (success_msg,
+                gr.update(visible=True),   # Show login section
+                gr.update(visible=False),  # Hide signup section
+                gr.update(visible=False),  # Keep main app hidden
+                "", "", "", # Clear email/password/username inputs
+                user.uid, user.email) # Set user state (though they still need to login)
     except auth.UidAlreadyExistsError:
-        return ("Username already exists. Please choose another.", gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), email, password, username, "")
+        return ("Username already exists. Please choose another.", gr.update(visible=False), gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), email, password, username, "", "")
     except auth.EmailAlreadyExistsError:
-        return ("Email already exists. Please use another email.", gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), email, password, username, "")
+        return ("Email already exists. Please use another email.", gr.update(visible=False), gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), email, password, username, "", "")
     except Exception as e:
         error_msg = f"Signup failed: {str(e)}"
         print(error_msg)
-        return (error_msg, gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), email, password, username, "")
+        return (error_msg, gr.update(visible=False), gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), email, password, username, "", "")
 
 def logout():
     return ("", # Clear login status
             gr.update(visible=True),  # Show login section
+            gr.update(visible=False), # Hide signup section
             gr.update(visible=False), # Hide main app
-            gr.update(visible=False), # Hide signup section (if it was visible)
             "", "", "", # Clear email/password/username inputs
-            "") # Clear user_state
+            "", "") # Clear user_state and user_email_state
 
 def navigate_to_interview():
     return (gr.update(visible=True), gr.update(visible=False)) # Show interview, hide chat
@@ -596,6 +627,10 @@ with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
     interview_state = gr.State({})
     # State for username/UID
     user_state = gr.State("")
+    # State for user email
+    user_email_state = gr.State("")
+    # State for processed resume data (used by both interview and chat)
+    processed_resume_data_state = gr.State("")
 
     # --- Login Section ---
     with gr.Column(visible=True) as login_section:
@@ -701,7 +736,9 @@ with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
         if CHAT_MODULE_AVAILABLE:
             chat_btn.click(fn=navigate_to_chat, inputs=None, outputs=[interview_view, chat_view])
         # Update welcome message when user_state changes (basic)
-        user_state.change(fn=lambda user: f"### Welcome, {user}!" if user else "### Welcome, User!", inputs=[user_state], outputs=[welcome_display])
+        # Note: Gradio State change listeners might not work as expected for UI updates in all cases.
+        # An alternative is to update the welcome message in the login/logout functions directly.
+        # user_state.change(fn=lambda user: f"### Welcome, {user}!" if user else "### Welcome, User!", inputs=[user_state], outputs=[welcome_display])
 
     # --- Event Listeners for Interview ---
     # Process Resume (Interview)
@@ -790,19 +827,19 @@ with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
     login_btn.click(
         fn=login,
         inputs=[login_email_input, login_password_input],
-        outputs=[login_status, login_section, main_app, signup_section, login_email_input, login_password_input, user_state]
+        outputs=[login_status, login_section, signup_section, main_app, login_email_input, login_password_input, user_state, user_email_state]
     )
 
     signup_btn.click(
         fn=signup,
         inputs=[signup_email_input, signup_password_input, signup_username_input],
-        outputs=[signup_status, signup_section, login_section, main_app, signup_email_input, signup_password_input, signup_username_input, user_state]
+        outputs=[signup_status, login_section, signup_section, main_app, signup_email_input, signup_password_input, signup_username_input, user_state, user_email_state]
     )
 
     logout_btn.click(
         fn=logout,
         inputs=None,
-        outputs=[login_status, login_section, main_app, signup_section, login_email_input, login_password_input, signup_username_input, user_state]
+        outputs=[login_status, login_section, signup_section, main_app, login_email_input, login_password_input, signup_username_input, user_state, user_email_state]
     )
 
     # Switch between Login and Signup
