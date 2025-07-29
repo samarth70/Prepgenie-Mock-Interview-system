@@ -98,20 +98,56 @@ def getallinfo(data):
     except Exception as e:
         print(f"Error in getallinfo: {e}")
         return "Error processing resume data."
-
-def file_processing(pdf_file_path): # Takes file path now
-    if not pdf_file_path:
+def file_processing(pdf_file_path): # Takes file path now (CORRECTED)
+    """Processes the uploaded PDF file given its path."""
+    if not pdf_file_path: # Handle None or empty path
+        print("No file path provided to file_processing.")
         return ""
     try:
-        with open(pdf_file_path, "rb") as f:
+        # Ensure pdf_file_path is a string path, not a NamedString object directly
+        # Gradio File component passes an object with a 'name' attribute containing the path
+        if hasattr(pdf_file_path, 'name'):
+            file_path_to_use = pdf_file_path.name
+        else:
+            # If it's already a string path (less common in recent Gradio versions for File uploads)
+            file_path_to_use = pdf_file_path
+
+        print(f"Attempting to process file: {file_path_to_use}")
+
+        # Open the file using the resolved path
+        with open(file_path_to_use, "rb") as f:
             reader = PyPDF2.PdfReader(f)
             text = ""
             for page in reader.pages:
                 text += page.extract_text()
         return text
-    except Exception as e:
-        print(f"Error processing PDF: {e}")
+    except FileNotFoundError:
+        print(f"File not found: {file_path_to_use}")
         return ""
+    except PyPDF2.errors.PdfReadError as e:
+        print(f"Error reading PDF file {file_path_to_use}: {e}")
+        return ""
+    except Exception as e: # Catch other potential errors
+        print(f"Unexpected error processing PDF {pdf_file_path}: {e}")
+        return ""
+
+
+def getallinfo(data):
+    """Formats resume data."""
+    if not data or not data.strip(): # Check for None or empty/whitespace
+        return "No data provided or data is empty."
+    # ... (rest of getallinfo logic remains the same) ...
+    text = f"""{data} is given by the user. Make sure you are getting the details like name, experience,
+            education, skills of the user like in a resume. If the details are not provided return: not a resume.
+            If details are provided then please try again and format the whole in a single paragraph covering all the information. """
+    try:
+        response = text_model.generate_content(text)
+        response.resolve()
+        return response.text
+    except Exception as e:
+        print(f"Error in getallinfo: {e}")
+        return "Error processing resume data."
+
 
 def get_embedding(text):
     if not text or not text.strip():
@@ -290,114 +326,74 @@ def generate_metrics(data, answer, question):
         }
     return metrics
 
-# --- Gradio UI Components and Logic (Interview) ---
-
 def process_resume(file_obj):
     """Handles resume upload and processing."""
+    print(f"Received file object in process_resume: {file_obj}")
     if not file_obj:
-        return ("Please upload a PDF resume.", gr.update(visible=False), gr.update(visible=False),
-                gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
-                gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
-                gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
-                gr.update(visible=False), gr.update(visible=False))
+        return (
+            "Please upload a PDF resume.",
+            gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=False) # 13 values
+        )
 
     try:
-        # Save uploaded file to a temporary location
-        temp_dir = tempfile.mkdtemp()
-        file_path = os.path.join(temp_dir, file_obj.name)
-        with open(file_path, "wb") as f:
-            f.write(file_obj.read())
+        # Use the file path correctly
+        if hasattr(file_obj, 'name'):
+            file_path = file_obj.name
+        else:
+            file_path = str(file_obj) # Ensure it's a string
 
-        # Process the PDF
+        print(f"Processing file at path: {file_path}")
+
         raw_text = file_processing(file_path)
         if not raw_text or not raw_text.strip():
-             os.remove(file_path)
-             os.rmdir(temp_dir)
-             return ("Could not extract text from the PDF.", gr.update(visible=False), gr.update(visible=False),
-                     gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
-                     gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
-                     gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
-                     gr.update(visible=False), gr.update(visible=False))
+            return (
+                "Could not extract text from the PDF.",
+                gr.update(visible=False), gr.update(visible=False),
+                gr.update(visible=False), gr.update(visible=False),
+                gr.update(visible=False), gr.update(visible=False),
+                gr.update(visible=False), gr.update(visible=False),
+                gr.update(visible=False), gr.update(visible=False),
+                gr.update(visible=False), gr.update(visible=False),
+                gr.update(visible=False) # 13 values
+            )
 
         processed_data = getallinfo(raw_text)
 
-        # Clean up temporary file
-        os.remove(file_path)
-        os.rmdir(temp_dir)
-
         return (
             f"File processed successfully!",
-            gr.update(visible=True),  # Role selection dropdown
-            gr.update(visible=True),  # Start Interview button
-            gr.update(visible=False), # Question display (initially)
-            gr.update(visible=False), # Answer instructions (initially)
-            gr.update(visible=False), # Audio input (initially)
-            gr.update(visible=False), # Submit Answer button (initially)
-            gr.update(visible=False), # Next Question button (initially)
-            gr.update(visible=False), # Submit Interview button (initially)
-            gr.update(visible=False), # Answer display (initially)
-            gr.update(visible=False), # Feedback display (initially)
-            gr.update(visible=False), # Metrics display (initially)
-            gr.update(visible=False), # Processed resume data textbox (hidden)
-            processed_data # Pass processed data for next step
+            gr.update(visible=True),   # role_selection
+            gr.update(visible=True),   # start_interview_btn
+            gr.update(visible=False),  # question_display
+            gr.update(visible=False),  # answer_instructions
+            gr.update(visible=False),  # audio_input
+            gr.update(visible=False),  # submit_answer_btn
+            gr.update(visible=False),  # next_question_btn
+            gr.update(visible=False),  # submit_interview_btn
+            gr.update(visible=False),  # answer_display
+            gr.update(visible=False),  # feedback_display
+            gr.update(visible=False),  # metrics_display
+            processed_data             # processed_resume_data_hidden_interview (13th value)
         )
     except Exception as e:
         error_msg = f"Error processing file: {str(e)}"
         print(error_msg)
-        return (error_msg, gr.update(visible=False), gr.update(visible=False),
-                gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
-                gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
-                gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
-                gr.update(visible=False), gr.update(visible=False))
-
-def start_interview(roles, processed_resume_data):
-    """Starts the interview process."""
-    # Corrected the condition check
-    if not roles or (isinstance(roles, list) and not any(roles)) or not processed_resume_data or not processed_resume_data.strip():
-        return ("Please select a role and ensure resume is processed.", "", [], [], {}, {},
-                gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
-                gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
-                gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
-                gr.update(visible=False), {}) # Return empty state on error
-
-    try:
-        questions = generate_questions(roles, processed_resume_data)
-        initial_question = questions[0] if questions else "Could you please introduce yourself?"
-
-        # Initialize state for the interview
-        interview_state = {
-            "questions": questions,
-            "current_q_index": 0,
-            "answers": [],
-            "feedback": [],
-            "interactions": {},
-            "metrics_list": [], # List to store metrics for each question
-            "resume_data": processed_resume_data
-        }
-
         return (
-            "Interview started. Please answer the first question.",
-            initial_question,
-            questions,
-            [], # answers
-            {}, # interactions
-            {}, # metrics (initially empty)
-            gr.update(visible=True), # Audio input
-            gr.update(visible=True), # Submit Answer button
-            gr.update(visible=True), # Next Question button
-            gr.update(visible=False), # Submit Interview button (hidden initially)
-            gr.update(visible=False), # Feedback textbox
-            gr.update(visible=False), # Metrics display
-            gr.update(visible=True), # Question display
-            gr.update(visible=True), # Answer instructions
-            interview_state
+            error_msg,
+            gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=False) # 13 values
         )
-    except Exception as e:
-        error_msg = f"Error starting interview: {str(e)}"
-        print(error_msg)
-        return (error_msg, "", [], [], {}, {}, gr.update(visible=False), gr.update(visible=False),
-                gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
-                gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), {})
+
 
 def submit_answer(audio, interview_state):
     """Handles submitting an answer via audio."""
@@ -745,12 +741,20 @@ with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
         fn=process_resume,
         inputs=[file_upload_interview],
         outputs=[
-            file_status_interview, role_selection, start_interview_btn,
-            question_display, answer_instructions, audio_input,
-            submit_answer_btn, next_question_btn, submit_interview_btn,
-            answer_display, feedback_display, metrics_display,
-            processed_resume_data_hidden_interview
-        ]
+            file_status_interview,      # 1
+            role_selection,             # 2
+            start_interview_btn,        # 3
+            question_display,           # 4
+            answer_instructions,        # 5
+            audio_input,                # 6
+            submit_answer_btn,          # 7
+            next_question_btn,          # 8
+            submit_interview_btn,       # 9
+            answer_display,             # 10
+            feedback_display,           # 11
+            metrics_display,            # 12
+            processed_resume_data_hidden_interview # 13 - This is where processed_data goes
+        ] # Exactly 13 outputs
     )
 
     # Start Interview
