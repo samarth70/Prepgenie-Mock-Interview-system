@@ -1,99 +1,130 @@
-import streamlit as st
-from firebase_admin import auth
-import os
+
+import gradio as gr
 import matplotlib.pyplot as plt
-import google.generativeai as genai
-
-# access the session state from start_interview.py
-from start_interview import st
-
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-text_model= genai.GenerativeModel("gemini-pro")
+import numpy as np
+import io
+import base64
 
 
 
-def getmetrics(interaction, resume):
-    text = f"This is the users resume: {resume}. And here is the interaction of the interview: {interaction}. Please evaluate the interview based on the interaction and the resume. rate me the following metrics on a scale of 1 to 10. 1 being the lowest and 10 being the highest. Communication skills, Teamwork and collaboration, Problem-solving and critical thinking, Time management and organization, Adaptability and resilience. just give the ratings for the metrics. You can also give the overall rating. i dont need the feedback. just the ratings. no other text is required. just the ratings. give me plain text not bold text."
+def create_metrics_chart(metrics_dict):
+    """Creates a pie chart image from metrics."""
+    try:
+        labels = list(metrics_dict.keys())
+        sizes = list(metrics_dict.values())
 
-    response = text_model.generate_content(text)
-    response.resolve()
-    # st.write(response.text)
-    return response.text
+        fig, ax = plt.subplots(figsize=(6, 6)) # Adjust size as needed
+        ax.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90)
+        ax.axis('equal') # Equal aspect ratio ensures that pie is drawn as a circle.
 
+        # Save plot to a BytesIO object
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png')
+        buf.seek(0)
+        plt.close(fig) # Important to close the figure
+        return buf
+    except Exception as e:
+        print(f"Error creating chart: {e}")
+        return None
 
-def evaluate_app():
-    # check if login
-    if 'username' not in st.session_state:
-        st.session_state.username = ''
-    if 'useremail' not in st.session_state:
-        st.session_state.useremail = ''
+def generate_evaluation_report(metrics_data_list):
+    """
+    Generates a text evaluation report and a chart.
+    metrics_data_list: List of dictionaries, each containing metrics for a question.
+    """
+    if not metrics_data_list:
+        return "No interview data available for evaluation.", None
 
-    # if not login then go to login page
-    if st.session_state.username == '':
-        st.title('Welcome user to your :violet[Evaluation of Interview]')
-        st.write('Evaluate your interview skills.')
-        st.subheader('Please login to continue')
-        st.subheader('You can login from the sidebar')
-        return
+    # Aggregate metrics (average scores)
+    aggregated_metrics = {
+        "Communication skills": 0.0,
+        "Teamwork and collaboration": 0.0,
+        "Problem-solving and critical thinking": 0.0,
+        "Time management and organization": 0.0,
+        "Adaptability and resilience": 0.0
+    }
+    num_questions = len(metrics_data_list)
+    if num_questions == 0:
+        num_questions = 1 # Avoid division by zero
 
-    else:
-        # goto start_interview.py
-        st.title('Welcome ' + st.session_state["username"] + ' to your :violet[Evaluation of Interview]')
-        # print the metrics from start_interview.py in sesssion state
-        # st.write('Your interview has been evaluated')
-        st.markdown('---')
-        resume = st.session_state.resume
+    for metrics_dict in metrics_data_list:
+        for key, value in metrics_dict.items():
+            if key in aggregated_metrics:
+                aggregated_metrics[key] += value
 
-        metric = getmetrics(st.session_state.interaction, resume)
-        # st.write(metric)
-        # ['Communication skills: N/A\nTeamwork and collaboration: N/A\nProblem-solving and critical thinking: N/A\nTime management and organization: N/A\nAdaptability and resilience: N/A'] this is how metric will return the value
-        # convert the string to dictionary
-        metrics = {}
-        for line in metric.split("\n"):
-            key, value = line.split(":")
-            metrics[key] = (value.strip())
+    for key in aggregated_metrics:
+        aggregated_metrics[key] /= num_questions
+        aggregated_metrics[key] = round(aggregated_metrics[key], 2) # Round to 2 decimal places
 
-        # convert the string to integer
-        for key in metrics:
-            if metrics[key] == 'N/A':
-                metrics[key] = 0
-            else:
-                metrics[key] = int(metrics[key])
-                
-        st.write(metrics)
+    average_rating = sum(aggregated_metrics.values()) / len(aggregated_metrics)
+    average_rating = round(average_rating, 2)
 
-        # metrics = {
-        #     "Communication skills": 7,
-        #     "Teamwork and collaboration": 8,
-        #     "Problem-solving and critical thinking": 9,
-        #     "Time management and organization": 6,
-        #     "Adaptability and resilience": 8,
-        # }
+    # --- Generate Text Report ---
+    report_lines = [f"## Hey Candidate, here is your interview evaluation:\n"]
+    report_lines.append("### Skill Ratings:\n")
+    for metric, rating in aggregated_metrics.items():
+        report_lines.append(f"* **{metric}:** {rating}/10\n")
 
-        # Calculate overall average rating
-        average_rating = sum(metrics.values()) / len(metrics)
+    report_lines.append(f"\n### Overall Average Rating: {average_rating:.2f}/10\n")
 
-        # Option 1: Full width containers
-        st.header("Hey " + st.session_state.username + ", we have evaluated your interview:")
-        # Display metrics and progress bars
-        for metric, rating in metrics.items():
-            st.subheader(metric)
-            st.write(f"Rating: {rating}")
-            progress_bar_width = int(200 * rating / 10)
-            st.markdown(f"<div style='background-color: lightblue; width: {progress_bar_width}px; height: 10px;'></div>", unsafe_allow_html=True)
+    improvement_content = """
+### Areas for Improvement:
 
-        st.header("Stats:")
-        # Create and display pie chart
-        plt.figure(figsize=(4, 4))
-        plt.pie(metrics.values(), labels=metrics.keys(), autopct="%1.1f%%")
-        plt.axis("equal")
-        st.pyplot(use_container_width=True)
+*   **Communication:** Focus on clarity, conciseness, and tailoring your responses to the audience. Use examples and evidence to support your points.
+*   **Teamwork and collaboration:** Highlight your teamwork skills through specific examples and demonstrate your ability to work effectively with others.
+*   **Problem-solving and critical thinking:** Clearly explain your problem-solving approach and thought process. Show your ability to analyze information and arrive at logical solutions.
+*   **Time management and organization:** Emphasize your ability to manage time effectively and stay organized during challenging situations.
+*   **Adaptability and resilience:** Demonstrate your ability to adapt to new situations and overcome challenges. Share examples of how you have handled unexpected situations or setbacks in the past.
 
-        st.subheader(f"Overall average rating: {average_rating:.2f}")
-        # Use Markdown for rich text and flexibility
-        st.markdown(st.session_state.feedback)
-        st.markdown("---")
-        st.write('You can see the interaction below:')
-        st.write(st.session_state.interaction)
-        # st.markdown('---')
-        # st.success(st.session_state.feedback)
+**Remember:** This is just a starting point. Customize the feedback based on the specific strengths and weaknesses identified in your interview.
+"""
+    report_lines.append(improvement_content)
+    report_text = "".join(report_lines)
+
+    # --- Generate Chart ---
+    chart_buffer = create_metrics_chart(aggregated_metrics)
+
+    return report_text, chart_buffer
+
+# --- Gradio Interface for Evaluation (Example Usage) ---
+
+# This part would typically be called from your main interview completion logic
+# and the outputs connected to Gradio components.
+
+# Example dummy data for testing the evaluation function
+# dummy_metrics_data = [
+#     {
+#         "Communication skills": 7.5,
+#         "Teamwork and collaboration": 6.0,
+#         "Problem-solving and critical thinking": 8.0,
+#         "Time management and organization": 5.5,
+#         "Adaptability and resilience": 7.0
+#     },
+#     {
+#         "Communication skills": 8.0,
+#         "Teamwork and collaboration": 7.5,
+#         "Problem-solving and critical thinking": 6.5,
+#         "Time management and organization": 8.0,
+#         "Adaptability and resilience": 6.0
+#     }
+# ]
+
+# def run_evaluation(metrics_data_input):
+#     report, chart = generate_evaluation_report(metrics_data_input)
+#     return report, chart
+
+# with gr.Blocks() as eval_demo:
+#     gr.Markdown("## Interview Evaluation")
+#     metrics_input = gr.JSON(label="Metrics Data (List of Dicts)", value=dummy_metrics_data)
+#     run_btn = gr.Button("Generate Evaluation")
+#     report_output = gr.Markdown(label="Evaluation Report")
+#     chart_output = gr.Image(label="Skills Breakdown", type="pil") # or type="filepath"
+
+#     run_btn.click(
+#         fn=run_evaluation,
+#         inputs=metrics_input,
+#         outputs=[report_output, chart_output]
+#     )
+
+# if __name__ == "__main__":
+#     eval_demo.launch()
