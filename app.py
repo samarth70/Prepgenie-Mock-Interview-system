@@ -711,97 +711,176 @@ def submit_interview(interview_state):
 
 # --- Login and Navigation Logic (Firebase Integrated) ---
 
-def login(email, password):
+def login(email, password): # Correct arguments: email, password
+    # Check if Firebase is available
     if not FIREBASE_AVAILABLE:
+        # Return exactly 8 values matching the outputs list for login_btn.click
         return (
             "Firebase not initialized. Login unavailable.",
-            gr.update(visible=True), gr.update(visible=False), gr.update(visible=False),
-            "", "", "", "")
-    if not email or not password or not username:
-        # Return exactly 9 values for this case too
-        return (
-            "Please fill all fields.",           # Line 760
-            gr.update(visible=False),            # login_section (Line 761)
-            gr.update(visible=True),             # signup_section (Line 762)
-            gr.update(visible=False),            # main_app (Line 763)
-            gr.update(visible=False),            # Placeholder/adjust (Line 764)
-            email,                               # signup_email_input (Line 765)
-            password,                            # signup_password_input (Line 766)
-            username,                            # signup_username_input (Line 767)
-            "",                                  # user_state (Line 768)
-            ""                                   # user_email_state (Line 769)
+            gr.update(visible=True),   # login_section
+            gr.update(visible=False),  # signup_section
+            gr.update(visible=False),  # main_app
+            "",                        # login_email_input (clear)
+            "",                        # login_password_input (clear)
+            "",                        # user_state
+            ""                         # user_email_state
         )
+
+    # --- CORRECTION 1: Remove 'username' from the condition check ---
+    # The login function does not have a 'username' argument.
+    if not email or not password: # <-- Corrected line
+        # Return exactly 8 values for this case too
+        return (
+            "Please enter email and password.",
+            gr.update(visible=True),   # login_section
+            gr.update(visible=False),  # signup_section
+            gr.update(visible=False),  # main_app
+            email,                     # login_email_input (keep value)
+            password,                  # login_password_input (keep value)
+            "",                        # user_state
+            ""                         # user_email_state
+        )
+
     try:
         user = auth.get_user_by_email(email)
         welcome_msg = f"Welcome, {user.display_name or user.uid}!"
         return (
             welcome_msg,
-            gr.update(visible=False), gr.update(visible=False), gr.update(visible=True),
-            "", "", user.uid, user.email
+            gr.update(visible=False),  # login_section
+            gr.update(visible=False),  # signup_section
+            gr.update(visible=True),   # main_app
+            "",                        # login_email_input (clear on success)
+            "",                        # login_password_input (clear on success)
+            user.uid,                  # user_state
+            user.email                 # user_email_state
         )
     except auth.UserNotFoundError:
         return (
             "User not found. Please check your email or sign up.",
-            gr.update(visible=True), gr.update(visible=False), gr.update(visible=False),
-            email, password, "", ""
+            gr.update(visible=True),   # login_section
+            gr.update(visible=False),  # signup_section
+            gr.update(visible=False),  # main_app
+            email,                     # login_email_input (keep value)
+            password,                  # login_password_input (keep value)
+            "",                        # user_state
+            ""                         # user_email_state
         )
     except Exception as e:
         error_msg = f"Login failed: {str(e)}"
         print(error_msg)
         return (
             error_msg,
-            gr.update(visible=True), gr.update(visible=False), gr.update(visible=False),
-            email, password, "", ""
+            gr.update(visible=True),   # login_section
+            gr.update(visible=False),  # signup_section
+            gr.update(visible=False),  # main_app
+            email,                     # login_email_input (keep value)
+            password,                  # login_password_input (keep value)
+            "",                        # user_state
+            ""                         # user_email_state
         )
 
-def signup(email, password, username):
+
+def signup(email, password, username): # Correct arguments: email, password, username
+    # Check if Firebase is available
     if not FIREBASE_AVAILABLE:
+        # Return exactly 9 values matching the outputs list for signup_btn.click
+        # --- CORRECTION 2a: Ensure the number of returned values matches the expected 9 ---
         return (
-        "Firebase not initialized. Signup unavailable.",
-        gr.update(visible=True), gr.update(visible=False), gr.update(visible=False),
-        gr.update(visible=False), "", "", "", "", ""
+            "Firebase not initialized. Signup unavailable.",
+            gr.update(visible=True),   # login_section
+            gr.update(visible=False),  # signup_section
+            gr.update(visible=False),  # main_app
+            # --- CORRECTION 2b: Remove the extra placeholder gr.update() ---
+            # gr.update(visible=False),  # Placeholder/adjust (This was the 5th item causing the mismatch)
+            "",                        # signup_email_input (5th)
+            "",                        # signup_password_input (6th)
+            "",                        # signup_username_input (7th)
+            "",                        # user_state (8th)
+            ""                         # user_email_state (9th)
+            # 9 values total
         )
-    if not email or not password or not username:
+
+    # --- CORRECTION 3: The 'username' check is valid here ---
+    if not email or not password or not username: # <-- This line is correct for signup
+        # Return exactly 9 values for this case too
         return (
             "Please fill all fields.",
-            gr.update(visible=False), gr.update(visible=True), gr.update(visible=False),
-            gr.update(visible=False), email, password, username, "", ""
+            gr.update(visible=False),  # login_section
+            gr.update(visible=True),   # signup_section
+            gr.update(visible=False),  # main_app
+            # gr.update(visible=False),  # Placeholder/adjust (Remove this)
+            email,                     # signup_email_input (5th)
+            password,                  # signup_password_input (6th)
+            username,                  # signup_username_input (7th)
+            "",                        # user_state (8th)
+            ""                         # user_email_state (9th)
+            # 9 values total
         )
+
     try:
         user = auth.create_user(email=email, password=password, uid=username, display_name=username)
         success_msg = f"Account created successfully for {username}!"
+        # Switch to login view after successful signup
         return (
             success_msg,
-            gr.update(visible=True), gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=False), "", "", "", user.uid, user.email
+            gr.update(visible=True),   # login_section (switch to login)
+            gr.update(visible=False),  # signup_section
+            gr.update(visible=False),  # main_app
+            # gr.update(visible=False),  # Placeholder/adjust (Remove this)
+            "", "", "",                # Clear email/password/username inputs (5th, 6th, 7th)
+            user.uid, user.email       # Set user state (8th, 9th)
+            # 9 values total
         )
     except auth.UidAlreadyExistsError:
         return (
             "Username already exists. Please choose another.",
-            gr.update(visible=False), gr.update(visible=True), gr.update(visible=False),
-            gr.update(visible=False), email, password, username, "", ""
+            gr.update(visible=False),  # login_section
+            gr.update(visible=True),   # signup_section
+            gr.update(visible=False),  # main_app
+            # gr.update(visible=False),  # Placeholder/adjust (Remove this)
+            email, password, username, # Keep inputs (5th, 6th, 7th)
+            "", ""                     # Clear user state (8th, 9th)
+            # 9 values total
         )
     except auth.EmailAlreadyExistsError:
         return (
             "Email already exists. Please use another email.",
-            gr.update(visible=False), gr.update(visible=True), gr.update(visible=False),
-            gr.update(visible=False), email, password, username, "", ""
+            gr.update(visible=False),  # login_section
+            gr.update(visible=True),   # signup_section
+            gr.update(visible=False),  # main_app
+            # gr.update(visible=False),  # Placeholder/adjust (Remove this)
+            email, password, username, # Keep inputs (5th, 6th, 7th)
+            "", ""                     # Clear user state (8th, 9th)
+            # 9 values total
         )
     except Exception as e:
         error_msg = f"Signup failed: {str(e)}"
         print(error_msg)
         return (
             error_msg,
-            gr.update(visible=False), gr.update(visible=True), gr.update(visible=False),
-            gr.update(visible=False), email, password, username, "", ""
+            gr.update(visible=False),  # login_section
+            gr.update(visible=True),   # signup_section
+            gr.update(visible=False),  # main_app
+            # gr.update(visible=False),  # Placeholder/adjust (Remove this)
+            email, password, username, # Keep inputs (5th, 6th, 7th)
+            "", ""                     # Clear user state (8th, 9th)
+            # 9 values total
         )
 
+
 def logout():
+    # Return exactly 9 values matching the outputs list for logout_btn.click
     return (
-        "",
-        gr.update(visible=True), gr.update(visible=False), gr.update(visible=False),
-        gr.update(visible=False), "", "", "", "", ""
+        "",                         # Clear login status
+        gr.update(visible=True),   # Show login section
+        gr.update(visible=False),  # Hide signup section
+        gr.update(visible=False),  # Hide main app
+        # gr.update(visible=False),  # Placeholder/adjust (Remove this if present in your listener)
+        "", "", "",                # Clear email/password/username inputs
+        "", ""                     # Clear user_state and user_email_state
+        # 9 values total
     )
+
 
 def navigate_to_interview():
     return (gr.update(visible=True), gr.update(visible=False))
@@ -1000,28 +1079,33 @@ with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
         )
 
     # --- Login/Logout Event Listeners ---
+
     login_btn.click(
         fn=login,
         inputs=[login_email_input, login_password_input],
         outputs=[login_status, login_section, signup_section, main_app,
-                 login_email_input, login_password_input, user_state, user_email_state]
+                 login_email_input, login_password_input, user_state, user_email_state] # 8 outputs
     )
-
+    
     signup_btn.click(
         fn=signup,
         inputs=[signup_email_input, signup_password_input, signup_username_input],
         outputs=[signup_status, login_section, signup_section, main_app,
+                 # Remove any extra gr.update() from the outputs list if present
                  signup_email_input, signup_password_input, signup_username_input,
-                 user_state, user_email_state]
+                 user_state, user_email_state] # 9 outputs
     )
-
+    
     logout_btn.click(
         fn=logout,
         inputs=None,
         outputs=[login_status, login_section, signup_section, main_app,
-                 login_email_input, login_password_input, signup_username_input,
-                 user_state, user_email_state]
+                 # Remove any extra gr.update() from the outputs list if present
+                 login_email_input, login_password_input, signup_username_input, # Note: uses signup_username_input target
+                 user_state, user_email_state] # 9 outputs
     )
+
+
 
     switch_to_signup_btn.click(
         fn=lambda: (gr.update(visible=False), gr.update(visible=True)),
