@@ -8,14 +8,45 @@ import google.generativeai as genai
 from transformers import BertTokenizer, TFBertModel
 import numpy as np
 import speech_recognition as sr
-# from gtts import gTTS # Not used directly in main app logic here
-# import pygame # Not used directly in main app logic here
 import time
 from dotenv import load_dotenv
 import soundfile as sf # For saving audio numpy array
+import json
+
+# --- Firebase Admin SDK Setup ---
+import firebase_admin
+from firebase_admin import credentials, auth, firestore
 
 # Load environment variables
 load_dotenv()
+
+# Initialize Firebase Admin SDK (Use environment variable for credentials path or default)
+firebase_credentials_path = os.getenv("FIREBASE_CREDENTIALS_PATH", "prepgenie-64134-firebase-adminsdk-fbsvc-3370ac4ab9.json")
+if not firebase_admin._apps:
+    try:
+        # Try loading from file path first
+        cred = credentials.Certificate(firebase_credentials_path)
+        firebase_admin.initialize_app(cred)
+        print("Firebase Admin initialized successfully using credentials file.")
+    except FileNotFoundError:
+        print(f"Firebase credentials file not found at {firebase_credentials_path}. Trying environment variable...")
+        try:
+            # Fallback: Try loading from environment variable (expects JSON string)
+            firebase_credentials_json = os.getenv("FIREBASE_CREDENTIALS_JSON")
+            if firebase_credentials_json:
+                cred_dict = json.loads(firebase_credentials_json)
+                cred = credentials.Certificate(cred_dict)
+                firebase_admin.initialize_app(cred)
+                print("Firebase Admin initialized successfully using environment variable.")
+            else:
+                raise ValueError("FIREBASE_CREDENTIALS_JSON environment variable not set.")
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"Error initializing Firebase Admin: {e}")
+            print("Firebase authentication will not be available.")
+            # You might want to handle this case differently, e.g., disable features or show an error
+    except Exception as e:
+        print(f"Unexpected error initializing Firebase Admin: {e}")
+        print("Firebase authentication will not be available.")
 
 # Configure Generative AI
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY") or "YOUR_DEFAULT_API_KEY_HERE") # Use environment variable or set a default
@@ -32,7 +63,7 @@ except Exception as e:
     model = None
     tokenizer = None
 
-# --- Helper Functions (Logic from Streamlit) ---
+# --- Helper Functions (Logic from Streamlit - Interview) ---
 
 def getallinfo(data):
     if not data or not data.strip(): # Check for None or empty/whitespace
@@ -239,7 +270,7 @@ def generate_metrics(data, answer, question):
         }
     return metrics
 
-# --- Gradio UI Components and Logic ---
+# --- Gradio UI Components and Logic (Interview) ---
 
 def process_resume(file_obj):
     """Handles resume upload and processing."""
@@ -484,31 +515,60 @@ def submit_interview(interview_state):
 
     return "Interview submitted successfully!", interview_state
 
-# --- Login and Navigation Logic ---
+# --- Login and Navigation Logic (Firebase Integrated) ---
 
-def login(username, password):
-    # Simple mock login - replace with real authentication logic
+def login(email, password):
+    # Simple mock login using Firebase - replace with real authentication logic
     # For demo, accept any non-empty username/password
-    if username and password:
-        welcome_msg = f"Welcome, {username}!"
+    # In a real app, you would verify the password against Firebase Auth (server-side)
+    # This is a simplified placeholder that checks if user exists.
+    if not email or not password:
+        return ("Please enter email and password.", gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), email, password, "")
+
+    try:
+        # Attempt to get user by email (this checks existence, not password in client-side code)
+        # A real implementation would involve secure server-side verification.
+        user = auth.get_user_by_email(email)
+        welcome_msg = f"Welcome, {user.display_name or user.uid}!" # Use display name or UID
         # Show main app, hide login
         return (welcome_msg,
                 gr.update(visible=False), # login_section
                 gr.update(visible=True),  # main_app
-                "", "", # Clear username/password inputs
-                username) # Update user_state
-    else:
-        return ("Please enter username and password.",
-                gr.update(visible=True),  # login_section stays visible
-                gr.update(visible=False), # main_app stays hidden
-                username, password, # Keep inputs
-                "") # user_state empty
+                "", "", # Clear email/password inputs
+                user.uid) # Update user_state with UID
+    except auth.UserNotFoundError:
+        return ("User not found. Please check your email or sign up.", gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), email, password, "")
+    except Exception as e:
+        error_msg = f"Login failed: {str(e)}"
+        print(error_msg)
+        return (error_msg, gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), email, password, "")
+
+def signup(email, password, username):
+    if not email or not password or not username:
+        return ("Please fill all fields.", gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), email, password, username, "")
+
+    try:
+        # Create user in Firebase
+        user = auth.create_user(email=email, password=password, uid=username, display_name=username)
+        success_msg = f"Account created successfully for {username}!"
+        # Automatically log the user in or prompt for login
+        # Here, we'll just show success and keep them on the signup form
+        return (success_msg, gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), "", "", "", user.uid) # Clear inputs, set user state
+    except auth.UidAlreadyExistsError:
+        return ("Username already exists. Please choose another.", gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), email, password, username, "")
+    except auth.EmailAlreadyExistsError:
+        return ("Email already exists. Please use another email.", gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), email, password, username, "")
+    except Exception as e:
+        error_msg = f"Signup failed: {str(e)}"
+        print(error_msg)
+        return (error_msg, gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), email, password, username, "")
 
 def logout():
     return ("", # Clear login status
             gr.update(visible=True),  # Show login section
             gr.update(visible=False), # Hide main app
-            "", "", # Clear username/password inputs
+            gr.update(visible=False), # Hide signup section (if it was visible)
+            "", "", "", # Clear email/password/username inputs
             "") # Clear user_state
 
 def navigate_to_interview():
@@ -517,22 +577,46 @@ def navigate_to_interview():
 def navigate_to_chat():
     return (gr.update(visible=False), gr.update(visible=True)) # Hide interview, show chat
 
+# --- Import Chat Module Functions ---
+# Assuming chat.py is in the same directory or correctly in the Python path
+try:
+    from login_module import chat as chat_module
+    CHAT_MODULE_AVAILABLE = True
+    print("Chat module imported successfully.")
+except ImportError as e:
+    print(f"Warning: Could not import chat module: {e}")
+    CHAT_MODULE_AVAILABLE = False
+    chat_module = None
+
 # --- Gradio Interface ---
 
 with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
     gr.Markdown("# 🦈 PrepGenie")
     # State to hold interview data
     interview_state = gr.State({})
-    # State for username
+    # State for username/UID
     user_state = gr.State("")
 
     # --- Login Section ---
     with gr.Column(visible=True) as login_section:
         gr.Markdown("## Login")
-        username_input = gr.Textbox(label="Username")
-        password_input = gr.Textbox(label="Password", type="password")
+        login_email_input = gr.Textbox(label="Email Address")
+        login_password_input = gr.Textbox(label="Password", type="password")
         login_btn = gr.Button("Login")
-        login_status = gr.Textbox(label="Status", interactive=False)
+        login_status = gr.Textbox(label="Login Status", interactive=False)
+        # Switch to Signup
+        switch_to_signup_btn = gr.Button("Don't have an account? Sign Up")
+
+    # --- Signup Section ---
+    with gr.Column(visible=False) as signup_section:
+        gr.Markdown("## Sign Up")
+        signup_email_input = gr.Textbox(label="Email Address")
+        signup_password_input = gr.Textbox(label="Password", type="password")
+        signup_username_input = gr.Textbox(label="Unique Username")
+        signup_btn = gr.Button("Create my account")
+        signup_status = gr.Textbox(label="Signup Status", interactive=False)
+        # Switch to Login
+        switch_to_login_btn = gr.Button("Already have an account? Login")
 
     # --- Main App Sections (Initially Hidden) ---
     with gr.Column(visible=False) as main_app:
@@ -546,18 +630,21 @@ with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
         with gr.Row():
             with gr.Column(scale=1):
                 interview_btn = gr.Button("Mock Interview")
-                chat_btn = gr.Button("Chat with Resume")
+                if CHAT_MODULE_AVAILABLE:
+                    chat_btn = gr.Button("Chat with Resume")
+                else:
+                    chat_btn = gr.Button("Chat with Resume (Unavailable)", interactive=False)
             with gr.Column(scale=4):
                 # --- Interview Section ---
-                with gr.Column(visible=False) as interview_selection: # Define interview_selection
+                with gr.Column(visible=False) as interview_selection:
                     gr.Markdown("## Mock Interview")
                     # File Upload Section
                     with gr.Row():
                         with gr.Column():
-                            file_upload = gr.File(label="Upload Resume (PDF)", file_types=[".pdf"])
-                            process_btn = gr.Button("Process Resume")
+                            file_upload_interview = gr.File(label="Upload Resume (PDF)", file_types=[".pdf"])
+                            process_btn_interview = gr.Button("Process Resume")
                         with gr.Column():
-                            file_status = gr.Textbox(label="Status", interactive=False)
+                            file_status_interview = gr.Textbox(label="Status", interactive=False)
 
                     # Role Selection (Initially hidden)
                     role_selection = gr.Dropdown(
@@ -581,54 +668,61 @@ with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
                     feedback_display = gr.Textbox(label="Feedback", interactive=False, visible=False)
                     metrics_display = gr.JSON(label="Metrics", visible=False)
 
-                    # Hidden textbox to hold processed resume data temporarily
-                    processed_resume_data_hidden = gr.Textbox(visible=False) # Renamed for clarity
+                    # Hidden textbox to hold processed resume data temporarily for interview
+                    processed_resume_data_hidden_interview = gr.Textbox(visible=False)
 
                 # --- Chat Section ---
-                with gr.Column(visible=False) as chat_selection: # Define chat_selection
-                    gr.Markdown("## Chat with Resume (Placeholder)")
-                    gr.Markdown("This section would contain the chat interface logic from `chat.py`.")
-                    # You would integrate the chat logic here, similar to how interview is done.
-                    # For now, it's a placeholder.
-                    chat_placeholder = gr.Textbox(label="Chat Placeholder", value="Chat functionality would be integrated here.", interactive=False)
+                if CHAT_MODULE_AVAILABLE:
+                    with gr.Column(visible=False) as chat_selection:
+                        gr.Markdown("## Chat with Resume")
+                        # File Upload Section (Chat uses its own upload)
+                        with gr.Row():
+                            with gr.Column():
+                                file_upload_chat = gr.File(label="Upload Resume (PDF)", file_types=[".pdf"])
+                                process_chat_btn = gr.Button("Process Resume")
+                            with gr.Column():
+                                file_status_chat = gr.Textbox(label="Status", interactive=False)
+
+                        # Chat Section (Initially hidden)
+                        chatbot = gr.Chatbot(label="Chat History", visible=False)
+                        query_input = gr.Textbox(label="Ask about your resume", placeholder="Type your question here...", visible=False)
+                        send_btn = gr.Button("Send", visible=False)
+                else:
+                    with gr.Column(visible=False) as chat_selection:
+                        gr.Markdown("## Chat with Resume (Unavailable)")
+                        gr.Textbox(value="Chat module is not available.", interactive=False)
 
 
         # Navigation buttons
-        # Define the components for navigation *before* using them in event listeners
         interview_view = interview_selection
         chat_view = chat_selection
 
         interview_btn.click(fn=navigate_to_interview, inputs=None, outputs=[interview_view, chat_view])
-        chat_btn.click(fn=navigate_to_chat, inputs=None, outputs=[interview_view, chat_view])
+        if CHAT_MODULE_AVAILABLE:
+            chat_btn.click(fn=navigate_to_chat, inputs=None, outputs=[interview_view, chat_view])
         # Update welcome message when user_state changes (basic)
         user_state.change(fn=lambda user: f"### Welcome, {user}!" if user else "### Welcome, User!", inputs=[user_state], outputs=[welcome_display])
 
-    # --- Event Listeners ---
-
-    # Process Resume
-    process_btn.click(
+    # --- Event Listeners for Interview ---
+    # Process Resume (Interview)
+    process_btn_interview.click(
         fn=process_resume,
-        inputs=[file_upload],
+        inputs=[file_upload_interview],
         outputs=[
-            file_status, role_selection, start_interview_btn,
+            file_status_interview, role_selection, start_interview_btn,
             question_display, answer_instructions, audio_input,
             submit_answer_btn, next_question_btn, submit_interview_btn,
             answer_display, feedback_display, metrics_display,
-            processed_resume_data_hidden # Pass processed data for next step
+            processed_resume_data_hidden_interview
         ]
     )
 
     # Start Interview
     start_interview_btn.click(
         fn=start_interview,
-        inputs=[role_selection, processed_resume_data_hidden],
+        inputs=[role_selection, processed_resume_data_hidden_interview],
         outputs=[
-            file_status, question_display,
-            # Note: Directly accessing state dict keys in outputs like interview_state["questions"] is problematic.
-            # Gradio expects component objects or gr.Updates. We pass the state object itself.
-            # The function returns values to update UI components and the entire state dict.
-            # interview_state["questions"], interview_state["answers"], # Invalid
-            # interview_state["interactions"], interview_state["metrics_list"], # Invalid
+            file_status_interview, question_display,
             # Outputs for UI updates
             audio_input, submit_answer_btn, next_question_btn,
             submit_interview_btn, feedback_display, metrics_display,
@@ -642,7 +736,7 @@ with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
         fn=submit_answer,
         inputs=[audio_input, interview_state],
         outputs=[
-            file_status, answer_display, interview_state,
+            file_status_interview, answer_display, interview_state,
             feedback_display, feedback_display, # Update value and visibility
             metrics_display, metrics_display,   # Update value and visibility
             audio_input, submit_answer_btn, next_question_btn,
@@ -655,7 +749,7 @@ with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
         fn=next_question,
         inputs=[interview_state],
         outputs=[
-            file_status, question_display, interview_state,
+            file_status_interview, question_display, interview_state,
             audio_input, submit_answer_btn, next_question_btn,
             feedback_display, metrics_display, submit_interview_btn,
             question_display, answer_instructions,
@@ -667,21 +761,61 @@ with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
     submit_interview_btn.click(
         fn=submit_interview,
         inputs=[interview_state],
-        outputs=[file_status, interview_state]
+        outputs=[file_status_interview, interview_state]
         # In a full app, you might navigate to an evaluation page here
     )
 
-    # Login/Logout Event Listeners
+    # --- Event Listeners for Chat (if available) ---
+    if CHAT_MODULE_AVAILABLE:
+        # Process Resume for Chat
+        process_chat_btn.click(
+            fn=chat_module.process_resume_chat,
+            inputs=[file_upload_chat],
+            outputs=[file_status_chat, processed_resume_data_state, query_input, send_btn, chatbot]
+        )
+
+        # Chat Interaction
+        send_btn.click(
+            fn=chat_module.chat_with_resume,
+            inputs=[query_input, processed_resume_data_state, chatbot], # chatbot provides history
+            outputs=[query_input, chatbot] # Update input (clear) and chatbot (new history)
+        )
+        query_input.submit( # Allow submitting with Enter key
+            fn=chat_module.chat_with_resume,
+            inputs=[query_input, processed_resume_data_state, chatbot],
+            outputs=[query_input, chatbot]
+        )
+
+    # --- Login/Logout Event Listeners ---
     login_btn.click(
         fn=login,
-        inputs=[username_input, password_input],
-        outputs=[login_status, login_section, main_app, username_input, password_input, user_state]
+        inputs=[login_email_input, login_password_input],
+        outputs=[login_status, login_section, main_app, signup_section, login_email_input, login_password_input, user_state]
+    )
+
+    signup_btn.click(
+        fn=signup,
+        inputs=[signup_email_input, signup_password_input, signup_username_input],
+        outputs=[signup_status, signup_section, login_section, main_app, signup_email_input, signup_password_input, signup_username_input, user_state]
     )
 
     logout_btn.click(
         fn=logout,
         inputs=None,
-        outputs=[login_status, login_section, main_app, username_input, password_input, user_state]
+        outputs=[login_status, login_section, main_app, signup_section, login_email_input, login_password_input, signup_username_input, user_state]
+    )
+
+    # Switch between Login and Signup
+    switch_to_signup_btn.click(
+        fn=lambda: (gr.update(visible=False), gr.update(visible=True)),
+        inputs=None,
+        outputs=[login_section, signup_section]
+    )
+
+    switch_to_login_btn.click(
+        fn=lambda: (gr.update(visible=True), gr.update(visible=False)),
+        inputs=None,
+        outputs=[login_section, signup_section]
     )
 
 # Run the app
