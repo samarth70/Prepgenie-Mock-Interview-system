@@ -1,17 +1,15 @@
-
-
-
 gradio>=4.0.0
 PyPDF2
 google-generativeai
-tensorflow # Or tensorflow-cpu if preferred
-transformers
+# Specify compatible versions
+tensorflow>=2.12.0, <2.18.0 # Example range, adjust based on testing
+tf-keras # Add this line - crucial for Transformers compatibility
+transformers>=4.30.0, <4.40.0 # Example range, adjust based on testing
 torch # Required by transformers
 numpy
 SpeechRecognition
-pyttsx3 # Might still be needed if used elsewhere, though gTTS is preferred for Gradio
 gTTS
 pygame
 python-dotenv
 matplotlib
-# firebase-admin # Keep if needed for backend auth, though frontend JS SDK is common with Gradio
+# firebase-admin # Keep if needed for backend auth
