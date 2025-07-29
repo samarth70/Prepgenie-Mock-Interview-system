@@ -881,10 +881,9 @@ with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
     start_interview_btn.click(
         fn=start_interview,
         inputs=[role_selection, processed_resume_data_hidden_interview],
+        # --- CORRECTION: Remove direct subscripting of interview_state ---
         outputs=[
             file_status_interview, question_display,
-            interview_state["questions"], interview_state["answers"],
-            interview_state["interactions"], interview_state["metrics_list"],
             audio_input, submit_answer_btn, next_question_btn,
             submit_interview_btn, feedback_display, metrics_display,
             question_display, answer_instructions,
