@@ -32,7 +32,7 @@ def initialize_firebase():
     cred = None
     try:
         # Method 1: Use specific credentials file path
-        firebase_credentials_path = os.getenv("prepgenie-64134-firebase-adminsdk-fbsvc-3370ac4ab9.json")
+        firebase_credentials_path = "prepgenie-64134-firebase-adminsdk-fbsvc-3370ac4ab9.json"
         if os.path.exists(firebase_credentials_path):
             print(f"Initializing Firebase with credentials file: {firebase_credentials_path}")
             cred = credentials.Certificate(firebase_credentials_path)
