@@ -4,20 +4,19 @@ import os
 import tempfile
 import PyPDF2
 import google.generativeai as genai
-# import tensorflow as tf # Not directly used here, but models might need it
 from transformers import BertTokenizer, TFBertModel
 import numpy as np
 import speech_recognition as sr
-# from gtts import gTTS # Not used directly in main app logic here
-# import pygame # Not used directly in main app logic here
-import time
 from dotenv import load_dotenv
-import soundfile as sf # For saving audio numpy array
+import soundfile as sf
 import json
+import matplotlib.pyplot as plt
+import io
+import re
 
 # --- Firebase Admin SDK Setup ---
 import firebase_admin
-from firebase_admin import credentials, auth, firestore
+from firebase_admin import credentials, auth
 
 # Load environment variables
 load_dotenv()
@@ -32,20 +31,22 @@ def initialize_firebase():
     cred = None
     try:
         # Method 1: Use specific credentials file path
-        firebase_credentials_path = "prepgenie-64134-firebase-adminsdk-fbsvc-3370ac4ab9.json"
-        if os.path.exists(firebase_credentials_path):
+        firebase_credentials_path = os.getenv("FIREBASE_CREDENTIALS_PATH", "prepgenie-64134-firebase-adminsdk-fbsvc-3370ac4ab9.json")
+        if firebase_credentials_path and os.path.exists(firebase_credentials_path):
             print(f"Initializing Firebase with credentials file: {firebase_credentials_path}")
             cred = credentials.Certificate(firebase_credentials_path)
             firebase_app = firebase_admin.initialize_app(cred)
             print("Firebase Admin initialized successfully using credentials file.")
             return firebase_app
+        elif not firebase_credentials_path:
+             print("FIREBASE_CREDENTIALS_PATH is not set or is None.")
         else:
              print(f"Firebase credentials file not found at {firebase_credentials_path}")
     except Exception as e:
         print(f"Failed to initialize Firebase using credentials file: {e}")
 
     try:
-        # Method 2: Use JSON string from environment variable (useful for cloud deployments)
+        # Method 2: Use JSON string from environment variable
         firebase_credentials_json = os.getenv("FIREBASE_CREDENTIALS_JSON")
         if firebase_credentials_json:
             print("Initializing Firebase with credentials from FIREBASE_CREDENTIALS_JSON environment variable.")
@@ -62,17 +63,16 @@ def initialize_firebase():
         print(f"Failed to initialize Firebase using FIREBASE_CREDENTIALS_JSON: {e}")
 
     print("Warning: Firebase Admin SDK could not be initialized. Authentication features will not work.")
-    return None # Indicate failure
+    return None
 
-# --- Initialize Firebase when the module is loaded ---
 FIREBASE_APP = initialize_firebase()
 FIREBASE_AVAILABLE = FIREBASE_APP is not None
 
 # Configure Generative AI
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY")) # Use environment variable or set a default
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY") or "YOUR_DEFAULT_API_KEY_HERE")
 text_model = genai.GenerativeModel("gemini-pro")
 
-
+# Load BERT model and tokenizer
 try:
     model = TFBertModel.from_pretrained("bert-base-uncased")
     tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
@@ -83,10 +83,10 @@ except Exception as e:
     model = None
     tokenizer = None
 
-# --- Helper Functions (Logic from Streamlit - Interview) ---
+# --- Helper Functions (Logic adapted from Streamlit) ---
 
 def getallinfo(data):
-    if not data or not data.strip(): # Check for None or empty/whitespace
+    if not data or not data.strip():
         return "No data provided or data is empty."
     text = f"""{data} is given by the user. Make sure you are getting the details like name, experience,
             education, skills of the user like in a resume. If the details are not provided return: not a resume.
@@ -98,87 +98,51 @@ def getallinfo(data):
     except Exception as e:
         print(f"Error in getallinfo: {e}")
         return "Error processing resume data."
-def file_processing(pdf_file_path): # Takes file path now (CORRECTED)
+
+def file_processing(pdf_file_path):
     """Processes the uploaded PDF file given its path."""
-    if not pdf_file_path: # Handle None or empty path
-        print("No file path provided to file_processing.")
+    if not pdf_file_path:
         return ""
     try:
-        # Ensure pdf_file_path is a string path, not a NamedString object directly
-        # Gradio File component passes an object with a 'name' attribute containing the path
         if hasattr(pdf_file_path, 'name'):
             file_path_to_use = pdf_file_path.name
         else:
-            # If it's already a string path (less common in recent Gradio versions for File uploads)
             file_path_to_use = pdf_file_path
 
-        print(f"Attempting to process file: {file_path_to_use}")
-
-        # Open the file using the resolved path
         with open(file_path_to_use, "rb") as f:
             reader = PyPDF2.PdfReader(f)
             text = ""
             for page in reader.pages:
                 text += page.extract_text()
         return text
-    except FileNotFoundError:
-        print(f"File not found: {file_path_to_use}")
-        return ""
-    except PyPDF2.errors.PdfReadError as e:
-        print(f"Error reading PDF file {file_path_to_use}: {e}")
-        return ""
-    except Exception as e: # Catch other potential errors
-        print(f"Unexpected error processing PDF {pdf_file_path}: {e}")
-        return ""
-
-
-def getallinfo(data):
-    """Formats resume data."""
-    if not data or not data.strip(): # Check for None or empty/whitespace
-        return "No data provided or data is empty."
-    # ... (rest of getallinfo logic remains the same) ...
-    text = f"""{data} is given by the user. Make sure you are getting the details like name, experience,
-            education, skills of the user like in a resume. If the details are not provided return: not a resume.
-            If details are provided then please try again and format the whole in a single paragraph covering all the information. """
-    try:
-        response = text_model.generate_content(text)
-        response.resolve()
-        return response.text
     except Exception as e:
-        print(f"Error in getallinfo: {e}")
-        return "Error processing resume data."
-
+        print(f"Error processing PDF {pdf_file_path}: {e}")
+        return ""
 
 def get_embedding(text):
     if not text or not text.strip():
-         print("Empty text provided for embedding.")
-         return np.zeros((1, 768)) # Return dummy embedding for empty text
+         return np.zeros((1, 768))
 
     if not BERT_AVAILABLE or not model or not tokenizer:
         print("BERT model not available for embedding.")
-        # Return a dummy embedding or handle the error appropriately
-        return np.zeros((1, 768)) # Dummy embedding size for bert-base-uncased
+        return np.zeros((1, 768))
 
     try:
-        # Add padding/truncation to handle variable lengths robustly
         encoded_text = tokenizer(text, return_tensors="tf", truncation=True, padding=True, max_length=512)
         output = model(encoded_text)
-        embedding = output.last_hidden_state[:, 0, :] # CLS token embedding
-        return embedding.numpy() # Convert to numpy for easier handling
+        embedding = output.last_hidden_state[:, 0, :]
+        return embedding.numpy()
     except Exception as e:
         print(f"Error getting embedding: {e}")
-        return np.zeros((1, 768)) # Return dummy embedding on error
+        return np.zeros((1, 768))
 
 def generate_feedback(question, answer):
-    # Handle empty inputs
     if not question or not question.strip() or not answer or not answer.strip():
         return "0.00"
 
     try:
         question_embedding = get_embedding(question)
         answer_embedding = get_embedding(answer)
-        # Calculate cosine similarity (ensure correct shapes)
-        # np.dot expects 1D or 2D arrays. Squeeze to remove single-dimensional entries.
         q_emb = np.squeeze(question_embedding)
         a_emb = np.squeeze(answer_embedding)
 
@@ -188,18 +152,16 @@ def generate_feedback(question, answer):
             similarity_score = 0.0
         else:
             similarity_score = dot_product / norms
-        return f"{similarity_score:.2f}" # Format as string with 2 decimal places
+        return f"{similarity_score:.2f}"
     except Exception as e:
         print(f"Error generating feedback: {e}")
         return "0.00"
 
 def generate_questions(roles, data):
-    # Handle empty inputs
     if not roles or (isinstance(roles, list) and not any(roles)) or not data or not data.strip():
         return ["Could you please introduce yourself based on your resume?"]
 
     questions = []
-    # Ensure roles is a list and join if needed
     if isinstance(roles, list):
         roles_str = ", ".join(roles)
     else:
@@ -214,20 +176,16 @@ def generate_questions(roles, data):
             ask 2 questions only. directly ask the questions not anything else.
             Also ask the questions in a polite way. Ask the questions in a way that the candidate can understand the question.
             and make sure the questions are related to these metrics: Communication skills, Teamwork and collaboration,
-            Problem-solving and critical thinking, Time management and organization, Adaptability and resilience. dont
-            tell anything else just give me the questions. if there is a limit in no of questions, ask or try questions that covers
-            all need."""
+            Problem-solving and critical thinking, Time management and organization, Adaptability and resilience."""
     try:
         response = text_model.generate_content(text)
         response.resolve()
         questions_text = response.text.strip()
-        # Split by newline, question mark, or period. Filter out empty strings.
         questions = [q.strip() for q in questions_text.split('\n') if q.strip()]
         if not questions:
              questions = [q.strip() for q in questions_text.split('?') if q.strip()]
         if not questions:
              questions = [q.strip() for q in questions_text.split('.') if q.strip()]
-        # Ensure we only get up to 2 questions
         questions = questions[:2] if questions else ["Could you please introduce yourself based on your resume?"]
     except Exception as e:
         print(f"Error generating questions: {e}")
@@ -235,11 +193,9 @@ def generate_questions(roles, data):
     return questions
 
 def generate_overall_feedback(data, percent, answer, questions):
-    # Handle empty inputs
     if not data or not data.strip() or not answer or not answer.strip() or not questions:
         return "Unable to generate feedback due to missing information."
 
-    # Ensure percent is a string for formatting, handle potential float input
     if isinstance(percent, float):
         percent_str = f"{percent:.2f}"
     else:
@@ -263,9 +219,7 @@ def generate_overall_feedback(data, percent, answer, questions):
         return "Feedback could not be generated."
 
 def generate_metrics(data, answer, question):
-    # Handle empty inputs
     if not data or not data.strip() or not answer or not answer.strip() or not question or not question.strip():
-        # Return default 0 metrics for empty inputs
         return {
             "Communication skills": 0.0, "Teamwork and collaboration": 0.0,
             "Problem-solving and critical thinking": 0.0, "Time management and organization": 0.0,
@@ -293,20 +247,16 @@ def generate_metrics(data, answer, question):
         response = text_model.generate_content(text)
         response.resolve()
         metrics_text = response.text.strip()
-        # Parse the metrics text
         for line in metrics_text.split('\n'):
             if ':' in line:
                 key, value_str = line.split(':', 1)
                 key = key.strip()
                 try:
-                    # Handle potential extra characters after the number
-                    value_clean = value_str.strip().split()[0] # Take first token
+                    value_clean = value_str.strip().split()[0]
                     value = float(value_clean)
                     metrics[key] = value
                 except (ValueError, IndexError):
-                    # If parsing fails, set to 0
                     metrics[key] = 0.0
-        # Ensure all expected metrics are present
         expected_metrics = [
             "Communication skills", "Teamwork and collaboration",
             "Problem-solving and critical thinking", "Time management and organization",
@@ -315,10 +265,8 @@ def generate_metrics(data, answer, question):
         for m in expected_metrics:
             if m not in metrics:
                 metrics[m] = 0.0
-
     except Exception as e:
         print(f"Error generating metrics: {e}")
-        # Return default 0 metrics on error
         metrics = {
             "Communication skills": 0.0, "Teamwork and collaboration": 0.0,
             "Problem-solving and critical thinking": 0.0, "Time management and organization": 0.0,
@@ -326,9 +274,131 @@ def generate_metrics(data, answer, question):
         }
     return metrics
 
+# --- Evaluation Logic (Adapted from login_module/evaluate.py) ---
+
+def getmetrics(interaction, resume):
+    interaction_text = "\n".join([f"{q}: {a}" for q, a in interaction.items()])
+    text = f"""This is the user's resume: {resume}.
+    And here is the interaction of the interview: {interaction_text}.
+    Please evaluate the interview based on the interaction and the resume.
+    Rate me the following metrics on a scale of 1 to 10. 1 being the lowest and 10 being the highest.
+    Communication skills, Teamwork and collaboration, Problem-solving and critical thinking,
+    Time management and organization, Adaptability and resilience. Just give the ratings for the metrics.
+    I do not need the feedback. Just the ratings in the format:
+    Communication skills: X
+    Teamwork and collaboration: Y
+    Problem-solving and critical thinking: Z
+    Time management and organization: A
+    Adaptability and resilience: B
+    """
+    try:
+        response = text_model.generate_content(text)
+        response.resolve()
+        return response.text
+    except Exception as e:
+        print(f"Error fetching metrics from AI: {e}")
+        return ""
+
+def parse_metrics(metric_text):
+    metrics = {
+        "Communication skills": 0,
+        "Teamwork and collaboration": 0,
+        "Problem-solving and critical thinking": 0,
+        "Time management and organization": 0,
+        "Adaptability and resilience": 0
+    }
+    if not metric_text:
+        return metrics
+    for line in metric_text.split("\n"):
+        if ":" in line:
+            key, value = line.split(":", 1)
+            key = key.strip()
+            value = value.strip()
+            if value and value not in ['N/A', 'nan'] and not value.isspace():
+                try:
+                    numbers = re.findall(r'\d+\.?\d*', value)
+                    if numbers:
+                        metrics[key] = int(float(numbers[0]))
+                    else:
+                        metrics[key] = 0
+                except (ValueError, IndexError, TypeError):
+                    print(f"Warning: Could not parse metric value '{value}' for '{key}'. Setting to 0.")
+                    metrics[key] = 0
+            else:
+                metrics[key] = 0
+    return metrics
+
+def create_metrics_chart(metrics_dict):
+    try:
+        labels = list(metrics_dict.keys())
+        sizes = list(metrics_dict.values())
+        if not any(sizes):
+             fig, ax = plt.subplots(figsize=(4, 4))
+             ax.text(0.5, 0.5, 'No Data Available', ha='center', va='center', transform=ax.transAxes)
+             ax.axis('off')
+        else:
+            fig, ax = plt.subplots(figsize=(6, 6))
+            wedges, texts, autotexts = ax.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90)
+            ax.axis('equal')
+            for autotext in autotexts:
+                autotext.set_color('white')
+                autotext.set_fontsize(8)
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', bbox_inches='tight')
+        buf.seek(0)
+        plt.close(fig)
+        return buf
+    except Exception as e:
+        print(f"Error creating chart: {e}")
+        fig, ax = plt.subplots(figsize=(4, 4))
+        ax.text(0.5, 0.5, 'Chart Error', ha='center', va='center', transform=ax.transAxes)
+        ax.axis('off')
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png')
+        buf.seek(0)
+        plt.close(fig)
+        return buf
+
+def generate_evaluation_report(metrics_data, average_rating, feedback_list, interaction_dict):
+    try:
+        report_lines = [f"## Hey Candidate, here is your interview evaluation:\n"]
+        report_lines.append("### Skill Ratings:\n")
+        for metric, rating in metrics_data.items():
+            report_lines.append(f"* **{metric}:** {rating}/10\n")
+        report_lines.append(f"\n### Overall Average Rating: {average_rating:.2f}/10\n")
+        report_lines.append("### Feedback Summary:\n")
+        if feedback_list:
+            last_feedback = feedback_list[-1] if feedback_list else "No feedback available."
+            report_lines.append(last_feedback)
+        else:
+             report_lines.append("No detailed feedback was generated.")
+        report_lines.append("\n### Interview Interaction:\n")
+        if interaction_dict:
+            for q, a in interaction_dict.items():
+                report_lines.append(f"* **{q}**\n  {a}\n")
+        else:
+             report_lines.append("Interaction data not available.")
+        improvement_content = """
+### Areas for Improvement:
+*   **Communication:** Focus on clarity, conciseness, and tailoring your responses to the audience. Use examples and evidence to support your points.
+*   **Teamwork and collaboration:** Highlight your teamwork skills through specific examples and demonstrate your ability to work effectively with others.
+*   **Problem-solving and critical thinking:** Clearly explain your problem-solving approach and thought process. Show your ability to analyze information and arrive at logical solutions.
+*   **Time management and organization:** Emphasize your ability to manage time effectively and stay organized during challenging situations.
+*   **Adaptability and resilience:** Demonstrate your ability to adapt to new situations and overcome challenges. Share examples of how you have handled unexpected situations or setbacks in the past.
+**Remember:** This is just a starting point. Customize the feedback based on the specific strengths and weaknesses identified in your interview.
+"""
+        report_lines.append(improvement_content)
+        report_text = "".join(report_lines)
+        return report_text
+    except Exception as e:
+        error_msg = f"Error generating evaluation report: {e}"
+        print(error_msg)
+        return error_msg
+
+# --- Gradio UI Components and Logic (Interview) ---
+
 def process_resume(file_obj):
     """Handles resume upload and processing."""
-    print(f"Received file object in process_resume: {file_obj}")
     if not file_obj:
         return (
             "Please upload a PDF resume.",
@@ -338,17 +408,14 @@ def process_resume(file_obj):
             gr.update(visible=False), gr.update(visible=False),
             gr.update(visible=False), gr.update(visible=False),
             gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=False) # 13 values
+            gr.update(visible=False)
         )
 
     try:
-        # Use the file path correctly
         if hasattr(file_obj, 'name'):
             file_path = file_obj.name
         else:
-            file_path = str(file_obj) # Ensure it's a string
-
-        print(f"Processing file at path: {file_path}")
+            file_path = str(file_obj)
 
         raw_text = file_processing(file_path)
         if not raw_text or not raw_text.strip():
@@ -360,25 +427,19 @@ def process_resume(file_obj):
                 gr.update(visible=False), gr.update(visible=False),
                 gr.update(visible=False), gr.update(visible=False),
                 gr.update(visible=False), gr.update(visible=False),
-                gr.update(visible=False) # 13 values
+                gr.update(visible=False)
             )
 
         processed_data = getallinfo(raw_text)
-
         return (
             f"File processed successfully!",
-            gr.update(visible=True),   # role_selection
-            gr.update(visible=True),   # start_interview_btn
-            gr.update(visible=False),  # question_display
-            gr.update(visible=False),  # answer_instructions
-            gr.update(visible=False),  # audio_input
-            gr.update(visible=False),  # submit_answer_btn
-            gr.update(visible=False),  # next_question_btn
-            gr.update(visible=False),  # submit_interview_btn
-            gr.update(visible=False),  # answer_display
-            gr.update(visible=False),  # feedback_display
-            gr.update(visible=False),  # metrics_display
-            processed_data             # processed_resume_data_hidden_interview (13th value)
+            gr.update(visible=True), gr.update(visible=True),
+            gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=False), gr.update(visible=False),
+            processed_data
         )
     except Exception as e:
         error_msg = f"Error processing file: {str(e)}"
@@ -391,46 +452,87 @@ def process_resume(file_obj):
             gr.update(visible=False), gr.update(visible=False),
             gr.update(visible=False), gr.update(visible=False),
             gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=False) # 13 values
+            gr.update(visible=False)
         )
 
+def start_interview(roles, processed_resume_data):
+    """Starts the interview process."""
+    if not roles or (isinstance(roles, list) and not any(roles)) or not processed_resume_data or not processed_resume_data.strip():
+        return (
+            "Please select a role and ensure resume is processed.",
+            "", [], [], {}, {},
+            gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=False), {}
+        )
+
+    try:
+        questions = generate_questions(roles, processed_resume_data)
+        initial_question = questions[0] if questions else "Could you please introduce yourself?"
+        interview_state = {
+            "questions": questions,
+            "current_q_index": 0,
+            "answers": [],
+            "feedback": [],
+            "interactions": {},
+            "metrics_list": [],
+            "resume_data": processed_resume_data
+        }
+        return (
+            "Interview started. Please answer the first question.",
+            initial_question,
+            questions,
+            [], {}, {},
+            gr.update(visible=True), gr.update(visible=True), gr.update(visible=True),
+            gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=True), gr.update(visible=True),
+            interview_state
+        )
+    except Exception as e:
+        error_msg = f"Error starting interview: {str(e)}"
+        print(error_msg)
+        return (
+            error_msg,
+            "", [], [], {}, {},
+            gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=False), {}
+        )
 
 def submit_answer(audio, interview_state):
     """Handles submitting an answer via audio."""
     if not audio or not interview_state:
-        return ("No audio recorded or interview not started.", "", interview_state,
-                gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
-                gr.update(visible=False), gr.update(visible=True), gr.update(visible=True),
-                gr.update(visible=True), gr.update(visible=False), gr.update(visible=True),
-                gr.update(visible=True))
+        return (
+            "No audio recorded or interview not started.",
+            "", interview_state,
+            gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=True), gr.update(visible=True), gr.update(visible=True),
+            gr.update(visible=False), gr.update(visible=True), gr.update(visible=True)
+        )
 
     try:
-        # Save audio to a temporary file
         temp_dir = tempfile.mkdtemp()
         audio_file_path = os.path.join(temp_dir, "recorded_audio.wav")
-        # audio is a tuple (sample_rate, numpy_array)
         sample_rate, audio_data = audio
-        # Use soundfile to save the numpy array as a WAV file
         sf.write(audio_file_path, audio_data, sample_rate)
 
-        # Convert audio file to text
         r = sr.Recognizer()
         with sr.AudioFile(audio_file_path) as source:
             audio_data_sr = r.record(source)
         answer_text = r.recognize_google(audio_data_sr)
         print(f"Recognized Answer: {answer_text}")
 
-        # Clean up temporary audio file
         os.remove(audio_file_path)
         os.rmdir(temp_dir)
 
-        # Update state with the answer
         interview_state["answers"].append(answer_text)
         current_q_index = interview_state["current_q_index"]
         current_question = interview_state["questions"][current_q_index]
         interview_state["interactions"][f"Q{current_q_index + 1}: {current_question}"] = f"A{current_q_index + 1}: {answer_text}"
 
-        # Generate feedback and metrics for the current question
         percent_str = generate_feedback(current_question, answer_text)
         try:
             percent = float(percent_str)
@@ -441,43 +543,42 @@ def submit_answer(audio, interview_state):
         interview_state["feedback"].append(feedback_text)
 
         metrics = generate_metrics(interview_state["resume_data"], answer_text, current_question)
-        interview_state["metrics_list"].append(metrics) # Store metrics for this question
+        interview_state["metrics_list"].append(metrics)
 
-        # Update state index
         interview_state["current_q_index"] += 1
 
         return (
             f"Answer submitted: {answer_text}",
             answer_text,
             interview_state,
-            gr.update(visible=True), # Show feedback textbox
-            gr.update(value=feedback_text, visible=True), # Update feedback textbox
-            gr.update(visible=True), # Show metrics display
-            gr.update(value=metrics, visible=True), # Update metrics display
-            gr.update(visible=True), # Keep audio input visible for next question
-            gr.update(visible=True), # Keep submit answer button
-            gr.update(visible=True), # Keep next question button
-            gr.update(visible=False), # Submit interview button still hidden
-            gr.update(visible=True), # Question display
-            gr.update(visible=True) # Answer instructions
+            gr.update(visible=True), gr.update(value=feedback_text, visible=True),
+            gr.update(visible=True), gr.update(value=metrics, visible=True),
+            gr.update(visible=True), gr.update(visible=True), gr.update(visible=True),
+            gr.update(visible=False), gr.update(visible=True), gr.update(visible=True)
         )
 
     except Exception as e:
         print(f"Error processing audio answer: {e}")
-        return ("Error processing audio. Please try again.", "", interview_state,
-                gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
-                gr.update(visible=False), gr.update(visible=True), gr.update(visible=True),
-                gr.update(visible=True), gr.update(visible=False), gr.update(visible=True),
-                gr.update(visible=True))
+        return (
+            "Error processing audio. Please try again.",
+            "", interview_state,
+            gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=True), gr.update(visible=True), gr.update(visible=True),
+            gr.update(visible=False), gr.update(visible=True), gr.update(visible=True)
+        )
 
 def next_question(interview_state):
     """Moves to the next question or ends the interview."""
     if not interview_state:
-        return ("Interview not started.", "", interview_state, gr.update(visible=True),
-                gr.update(visible=True), gr.update(visible=True), gr.update(visible=False),
-                gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
-                gr.update(visible=False), gr.update(visible=True), gr.update(visible=True),
-                gr.update(visible=False), gr.update(visible=False))
+        return (
+            "Interview not started.",
+            "", interview_state,
+            gr.update(visible=True), gr.update(visible=True), gr.update(visible=True),
+            gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=False), gr.update(visible=True), gr.update(visible=True),
+            gr.update(visible=False), gr.update(visible=False)
+        )
 
     current_q_index = interview_state["current_q_index"]
     total_questions = len(interview_state["questions"])
@@ -488,123 +589,174 @@ def next_question(interview_state):
             f"Question {current_q_index + 1}/{total_questions}",
             next_q,
             interview_state,
-            gr.update(visible=True), # Audio input
-            gr.update(visible=True), # Submit Answer
-            gr.update(visible=True), # Next Question
-            gr.update(visible=False), # Feedback textbox (hidden for new question)
-            gr.update(visible=False), # Metrics display (hidden for new question)
-            gr.update(visible=False), # Submit Interview (still hidden)
-            gr.update(visible=True), # Question display
-            gr.update(visible=True), # Answer instructions
-            "", # Clear previous answer display
-            {} # Clear previous metrics display
+            gr.update(visible=True), gr.update(visible=True), gr.update(visible=True),
+            gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=False), gr.update(visible=True), gr.update(visible=True),
+            "", {}
         )
     else:
-        # Interview finished
         return (
             "Interview completed! Click 'Submit Interview' to see your evaluation.",
             "Interview Finished",
             interview_state,
-            gr.update(visible=False), # Hide audio input
-            gr.update(visible=False), # Hide submit answer
-            gr.update(visible=False), # Hide next question
-            gr.update(visible=False), # Hide feedback textbox
-            gr.update(visible=False), # Hide metrics display
-            gr.update(visible=True), # Show submit interview button
-            gr.update(visible=True), # Question display (shows finished)
-            gr.update(visible=False), # Hide answer instructions
-            "", # Clear answer display
-            {} # Clear metrics display
+            gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=True), gr.update(visible=True), gr.update(visible=False),
+            "", {}
         )
 
 def submit_interview(interview_state):
-    """Handles final submission and triggers evaluation."""
-    if not interview_state:
-        return "Interview state is missing.", interview_state
+    """Handles final submission, triggers evaluation, and prepares results."""
+    if not interview_state or not isinstance(interview_state, dict):
+        return (
+            "Interview state is missing or invalid.",
+            interview_state,
+            gr.update(visible=False), gr.update(visible=False), "", None
+        )
 
-    # The evaluation logic would typically be triggered here or handled in a separate function.
-    # For now, we'll just indicate it's ready.
-    print("Interview submitted for evaluation.")
-    print("Final State:", interview_state)
-    # In a full implementation, you might call an evaluation function here
-    # or redirect to an evaluation page/component.
+    try:
+        print("Interview submitted for evaluation.")
+        interactions = interview_state.get("interactions", {})
+        resume_data = interview_state.get("resume_data", "")
+        feedback_list = interview_state.get("feedback", [])
+        metrics_history = interview_state.get("metrics_list", [])
 
-    return "Interview submitted successfully!", interview_state
+        if not interactions:
+            error_msg = "No interview interactions found to evaluate."
+            print(error_msg)
+            return (
+                error_msg,
+                interview_state,
+                gr.update(visible=False), gr.update(visible=False), "", None
+            )
+
+        raw_metrics_text = getmetrics(interactions, resume_data)
+        print(f"Raw Metrics Text:\n{raw_metrics_text}")
+        final_metrics = parse_metrics(raw_metrics_text)
+        print(f"Parsed Metrics: {final_metrics}")
+
+        if final_metrics:
+            average_rating = sum(final_metrics.values()) / len(final_metrics)
+        else:
+            average_rating = 0.0
+
+        report_text = generate_evaluation_report(final_metrics, average_rating, feedback_list, interactions)
+        print("Evaluation report generated.")
+        chart_buffer = create_metrics_chart(final_metrics)
+        print("Evaluation chart generated.")
+
+        return (
+            "Evaluation Complete! See your results below.",
+            interview_state,
+            gr.update(visible=True, value=report_text),
+            gr.update(visible=True, value=chart_buffer)
+        )
+    except Exception as e:
+        error_msg = f"Error during evaluation submission: {str(e)}"
+        print(error_msg)
+        import traceback
+        traceback.print_exc()
+        return (
+            error_msg,
+            interview_state,
+            gr.update(visible=True, value=error_msg),
+            gr.update(visible=False)
+        )
 
 # --- Login and Navigation Logic (Firebase Integrated) ---
 
 def login(email, password):
-    # Check if Firebase is available
     if not FIREBASE_AVAILABLE:
-        return ("Firebase not initialized. Login unavailable.", gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), email, password, "", "")
-
+        return (
+            "Firebase not initialized. Login unavailable.",
+            gr.update(visible=True), gr.update(visible=False), gr.update(visible=False),
+            "", "", "", ""
+        )
     if not email or not password:
-        return ("Please enter email and password.", gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), email, password, "", "")
-
+        return (
+            "Please enter email and password.",
+            gr.update(visible=True), gr.update(visible=False), gr.update(visible=False),
+            email, password, "", ""
+        )
     try:
-        # Attempt to get user by email (checks existence)
-        # Note: This does NOT verify the password in a secure way for a client-side app.
-        # A production app needs server-side verification or ID token validation.
         user = auth.get_user_by_email(email)
-        welcome_msg = f"Welcome, {user.display_name or user.uid}!" # Use display name or UID
-        # Show main app, hide login/signup
-        return (welcome_msg,
-                gr.update(visible=False), # login_section
-                gr.update(visible=False), # signup_section
-                gr.update(visible=True),  # main_app
-                "", "", # Clear email/password inputs
-                user.uid, # Update user_state with UID
-                user.email) # Update user_email_state
+        welcome_msg = f"Welcome, {user.display_name or user.uid}!"
+        return (
+            welcome_msg,
+            gr.update(visible=False), gr.update(visible=False), gr.update(visible=True),
+            "", "", user.uid, user.email
+        )
     except auth.UserNotFoundError:
-        return ("User not found. Please check your email or sign up.", gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), email, password, "", "")
+        return (
+            "User not found. Please check your email or sign up.",
+            gr.update(visible=True), gr.update(visible=False), gr.update(visible=False),
+            email, password, "", ""
+        )
     except Exception as e:
         error_msg = f"Login failed: {str(e)}"
         print(error_msg)
-        return (error_msg, gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), email, password, "", "")
+        return (
+            error_msg,
+            gr.update(visible=True), gr.update(visible=False), gr.update(visible=False),
+            email, password, "", ""
+        )
 
 def signup(email, password, username):
-    # Check if Firebase is available
-    if not FIREBASE_AVAILABLE:
-        return ("Firebase not initialized. Signup unavailable.", gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), email, password, username, "", "")
+     if not FIREBASE_AVAILABLE:
+        return (
+            "Firebase not initialized. Signup unavailable.",
+            gr.update(visible=True), gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=False), "", "", "", "", ""
+        )
     if not email or not password or not username:
-        return ("Please fill all fields.", gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), email, password, username, "", "")
-
+        return (
+            "Please fill all fields.",
+            gr.update(visible=False), gr.update(visible=True), gr.update(visible=False),
+            gr.update(visible=False), email, password, username, "", ""
+        )
     try:
-        # Create user in Firebase
         user = auth.create_user(email=email, password=password, uid=username, display_name=username)
         success_msg = f"Account created successfully for {username}!"
-        # Switch to login view after successful signup
-        return (success_msg,
-                gr.update(visible=True),   # Show login section
-                gr.update(visible=False),  # Hide signup section
-                gr.update(visible=False),  # Keep main app hidden
-                "", "", "", # Clear email/password/username inputs
-                user.uid, user.email) # Set user state (though they still need to login)
+        return (
+            success_msg,
+            gr.update(visible=True), gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=False), "", "", "", user.uid, user.email
+        )
     except auth.UidAlreadyExistsError:
-        return ("Username already exists. Please choose another.", gr.update(visible=False), gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), email, password, username, "", "")
+        return (
+            "Username already exists. Please choose another.",
+            gr.update(visible=False), gr.update(visible=True), gr.update(visible=False),
+            gr.update(visible=False), email, password, username, "", ""
+        )
     except auth.EmailAlreadyExistsError:
-        return ("Email already exists. Please use another email.", gr.update(visible=False), gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), email, password, username, "", "")
+        return (
+            "Email already exists. Please use another email.",
+            gr.update(visible=False), gr.update(visible=True), gr.update(visible=False),
+            gr.update(visible=False), email, password, username, "", ""
+        )
     except Exception as e:
         error_msg = f"Signup failed: {str(e)}"
         print(error_msg)
-        return (error_msg, gr.update(visible=False), gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), email, password, username, "", "")
+        return (
+            error_msg,
+            gr.update(visible=False), gr.update(visible=True), gr.update(visible=False),
+            gr.update(visible=False), email, password, username, "", ""
+        )
 
 def logout():
-    return ("", # Clear login status
-            gr.update(visible=True),  # Show login section
-            gr.update(visible=False), # Hide signup section
-            gr.update(visible=False), # Hide main app
-            "", "", "", # Clear email/password/username inputs
-            "", "") # Clear user_state and user_email_state
+    return (
+        "",
+        gr.update(visible=True), gr.update(visible=False), gr.update(visible=False),
+        gr.update(visible=False), "", "", "", "", ""
+    )
 
 def navigate_to_interview():
-    return (gr.update(visible=True), gr.update(visible=False)) # Show interview, hide chat
+    return (gr.update(visible=True), gr.update(visible=False))
 
 def navigate_to_chat():
-    return (gr.update(visible=False), gr.update(visible=True)) # Hide interview, show chat
+    return (gr.update(visible=False), gr.update(visible=True))
 
 # --- Import Chat Module Functions ---
-# Assuming chat.py is in the same directory or correctly in the Python path
 try:
     from login_module import chat as chat_module
     CHAT_MODULE_AVAILABLE = True
@@ -615,16 +767,11 @@ except ImportError as e:
     chat_module = None
 
 # --- Gradio Interface ---
-
 with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
     gr.Markdown("# 🦈 PrepGenie")
-    # State to hold interview data
     interview_state = gr.State({})
-    # State for username/UID
     user_state = gr.State("")
-    # State for user email
     user_email_state = gr.State("")
-    # State for processed resume data (used by both interview and chat)
     processed_resume_data_state = gr.State("")
 
     # --- Login Section ---
@@ -634,7 +781,6 @@ with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
         login_password_input = gr.Textbox(label="Password", type="password")
         login_btn = gr.Button("Login")
         login_status = gr.Textbox(label="Login Status", interactive=False)
-        # Switch to Signup
         switch_to_signup_btn = gr.Button("Don't have an account? Sign Up")
 
     # --- Signup Section ---
@@ -645,16 +791,14 @@ with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
         signup_username_input = gr.Textbox(label="Unique Username")
         signup_btn = gr.Button("Create my account")
         signup_status = gr.Textbox(label="Signup Status", interactive=False)
-        # Switch to Login
         switch_to_login_btn = gr.Button("Already have an account? Login")
 
-    # --- Main App Sections (Initially Hidden) ---
+    # --- Main App Sections ---
     with gr.Column(visible=False) as main_app:
         with gr.Row():
             with gr.Column(scale=1):
                  logout_btn = gr.Button("Logout")
             with gr.Column(scale=4):
-                # Dynamic welcome message (basic approach)
                 welcome_display = gr.Markdown("### Welcome, User!")
 
         with gr.Row():
@@ -668,7 +812,6 @@ with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
                 # --- Interview Section ---
                 with gr.Column(visible=False) as interview_selection:
                     gr.Markdown("## Mock Interview")
-                    # File Upload Section
                     with gr.Row():
                         with gr.Column():
                             file_upload_interview = gr.File(label="Upload Resume (PDF)", file_types=[".pdf"])
@@ -676,45 +819,39 @@ with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
                         with gr.Column():
                             file_status_interview = gr.Textbox(label="Status", interactive=False)
 
-                    # Role Selection (Initially hidden)
                     role_selection = gr.Dropdown(
                         choices=["Data Scientist", "Software Engineer", "Product Manager", "Data Analyst", "Business Analyst"],
-                        multiselect=True,
-                        label="Select Job Role(s)",
-                        visible=False
+                        multiselect=True, label="Select Job Role(s)", visible=False
                     )
                     start_interview_btn = gr.Button("Start Interview", visible=False)
-
-                    # Interview Section (Initially hidden)
                     question_display = gr.Textbox(label="Question", interactive=False, visible=False)
                     answer_instructions = gr.Markdown("Click 'Record Answer' and speak your response.", visible=False)
                     audio_input = gr.Audio(label="Record Answer", type="numpy", visible=False)
                     submit_answer_btn = gr.Button("Submit Answer", visible=False)
                     next_question_btn = gr.Button("Next Question", visible=False)
                     submit_interview_btn = gr.Button("Submit Interview", visible=False, variant="primary")
-
-                    # Feedback and Metrics (Initially hidden)
                     answer_display = gr.Textbox(label="Your Answer", interactive=False, visible=False)
                     feedback_display = gr.Textbox(label="Feedback", interactive=False, visible=False)
                     metrics_display = gr.JSON(label="Metrics", visible=False)
-
-                    # Hidden textbox to hold processed resume data temporarily for interview
                     processed_resume_data_hidden_interview = gr.Textbox(visible=False)
+
+                    # --- Evaluation Results Section ---
+                    with gr.Column(visible=False) as evaluation_selection:
+                        gr.Markdown("## Interview Evaluation Results")
+                        evaluation_report_display = gr.Markdown(label="Your Evaluation Report", visible=False)
+                        evaluation_chart_display = gr.Image(label="Skills Breakdown", type="pil", visible=False)
 
                 # --- Chat Section ---
                 if CHAT_MODULE_AVAILABLE:
                     with gr.Column(visible=False) as chat_selection:
                         gr.Markdown("## Chat with Resume")
-                        # File Upload Section (Chat uses its own upload)
                         with gr.Row():
                             with gr.Column():
                                 file_upload_chat = gr.File(label="Upload Resume (PDF)", file_types=[".pdf"])
                                 process_chat_btn = gr.Button("Process Resume")
                             with gr.Column():
                                 file_status_chat = gr.Textbox(label="Status", interactive=False)
-
-                        # Chat Section (Initially hidden)
-                        chatbot = gr.Chatbot(label="Chat History", visible=False)
+                        chatbot = gr.Chatbot(label="Chat History", visible=False, type="messages") # Updated type
                         query_input = gr.Textbox(label="Ask about your resume", placeholder="Type your question here...", visible=False)
                         send_btn = gr.Button("Send", visible=False)
                 else:
@@ -722,69 +859,51 @@ with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
                         gr.Markdown("## Chat with Resume (Unavailable)")
                         gr.Textbox(value="Chat module is not available.", interactive=False)
 
-
-        # Navigation buttons
         interview_view = interview_selection
         chat_view = chat_selection
-
         interview_btn.click(fn=navigate_to_interview, inputs=None, outputs=[interview_view, chat_view])
         if CHAT_MODULE_AVAILABLE:
             chat_btn.click(fn=navigate_to_chat, inputs=None, outputs=[interview_view, chat_view])
-        # Update welcome message when user_state changes (basic)
-        # Note: Gradio State change listeners might not work as expected for UI updates in all cases.
-        # An alternative is to update the welcome message in the login/logout functions directly.
-        # user_state.change(fn=lambda user: f"### Welcome, {user}!" if user else "### Welcome, User!", inputs=[user_state], outputs=[welcome_display])
 
     # --- Event Listeners for Interview ---
-    # Process Resume (Interview)
     process_btn_interview.click(
         fn=process_resume,
         inputs=[file_upload_interview],
         outputs=[
-            file_status_interview,      # 1
-            role_selection,             # 2
-            start_interview_btn,        # 3
-            question_display,           # 4
-            answer_instructions,        # 5
-            audio_input,                # 6
-            submit_answer_btn,          # 7
-            next_question_btn,          # 8
-            submit_interview_btn,       # 9
-            answer_display,             # 10
-            feedback_display,           # 11
-            metrics_display,            # 12
-            processed_resume_data_hidden_interview # 13 - This is where processed_data goes
-        ] # Exactly 13 outputs
+            file_status_interview, role_selection, start_interview_btn,
+            question_display, answer_instructions, audio_input,
+            submit_answer_btn, next_question_btn, submit_interview_btn,
+            answer_display, feedback_display, metrics_display,
+            processed_resume_data_hidden_interview
+        ]
     )
 
-    # Start Interview
     start_interview_btn.click(
         fn=start_interview,
         inputs=[role_selection, processed_resume_data_hidden_interview],
         outputs=[
             file_status_interview, question_display,
-            # Outputs for UI updates
+            interview_state["questions"], interview_state["answers"],
+            interview_state["interactions"], interview_state["metrics_list"],
             audio_input, submit_answer_btn, next_question_btn,
             submit_interview_btn, feedback_display, metrics_display,
-            question_display, answer_instructions, # These are UI updates
-            interview_state # Update the state object itself
+            question_display, answer_instructions,
+            interview_state
         ]
     )
 
-    # Submit Answer
     submit_answer_btn.click(
         fn=submit_answer,
         inputs=[audio_input, interview_state],
         outputs=[
             file_status_interview, answer_display, interview_state,
-            feedback_display, feedback_display, # Update value and visibility
-            metrics_display, metrics_display,   # Update value and visibility
+            feedback_display, feedback_display,
+            metrics_display, metrics_display,
             audio_input, submit_answer_btn, next_question_btn,
             submit_interview_btn, question_display, answer_instructions
         ]
     )
 
-    # Next Question
     next_question_btn.click(
         fn=next_question,
         inputs=[interview_state],
@@ -793,34 +912,34 @@ with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
             audio_input, submit_answer_btn, next_question_btn,
             feedback_display, metrics_display, submit_interview_btn,
             question_display, answer_instructions,
-            answer_display, metrics_display # Clear previous answer/metrics display
+            answer_display, metrics_display
         ]
     )
 
-    # Submit Interview (Placeholder for evaluation trigger)
     submit_interview_btn.click(
         fn=submit_interview,
         inputs=[interview_state],
-        outputs=[file_status_interview, interview_state]
-        # In a full app, you might navigate to an evaluation page here
+        outputs=[
+            file_status_interview,
+            interview_state,
+            evaluation_report_display,
+            evaluation_chart_display
+        ]
     )
 
-    # --- Event Listeners for Chat (if available) ---
+    # --- Event Listeners for Chat ---
     if CHAT_MODULE_AVAILABLE:
-        # Process Resume for Chat
         process_chat_btn.click(
             fn=chat_module.process_resume_chat,
             inputs=[file_upload_chat],
             outputs=[file_status_chat, processed_resume_data_state, query_input, send_btn, chatbot]
         )
-
-        # Chat Interaction
         send_btn.click(
             fn=chat_module.chat_with_resume,
-            inputs=[query_input, processed_resume_data_state, chatbot], # chatbot provides history
-            outputs=[query_input, chatbot] # Update input (clear) and chatbot (new history)
+            inputs=[query_input, processed_resume_data_state, chatbot],
+            outputs=[query_input, chatbot]
         )
-        query_input.submit( # Allow submitting with Enter key
+        query_input.submit(
             fn=chat_module.chat_with_resume,
             inputs=[query_input, processed_resume_data_state, chatbot],
             outputs=[query_input, chatbot]
@@ -830,22 +949,26 @@ with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
     login_btn.click(
         fn=login,
         inputs=[login_email_input, login_password_input],
-        outputs=[login_status, login_section, signup_section, main_app, login_email_input, login_password_input, user_state, user_email_state]
+        outputs=[login_status, login_section, signup_section, main_app,
+                 login_email_input, login_password_input, user_state, user_email_state]
     )
 
     signup_btn.click(
         fn=signup,
         inputs=[signup_email_input, signup_password_input, signup_username_input],
-        outputs=[signup_status, login_section, signup_section, main_app, signup_email_input, signup_password_input, signup_username_input, user_state, user_email_state]
+        outputs=[signup_status, login_section, signup_section, main_app,
+                 signup_email_input, signup_password_input, signup_username_input,
+                 user_state, user_email_state]
     )
 
     logout_btn.click(
         fn=logout,
         inputs=None,
-        outputs=[login_status, login_section, signup_section, main_app, login_email_input, login_password_input, signup_username_input, user_state, user_email_state]
+        outputs=[login_status, login_section, signup_section, main_app,
+                 login_email_input, login_password_input, signup_username_input,
+                 user_state, user_email_state]
     )
 
-    # Switch between Login and Signup
     switch_to_signup_btn.click(
         fn=lambda: (gr.update(visible=False), gr.update(visible=True)),
         inputs=None,
@@ -860,4 +983,4 @@ with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
 
 # Run the app
 if __name__ == "__main__":
-    demo.launch(share=True) # You can add server_name="0.0.0.0", server_port=7860 for external access
+    demo.launch(server_name="0.0.0.0", server_port=7860, share=False)
