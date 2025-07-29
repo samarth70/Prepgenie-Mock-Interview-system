@@ -3,7 +3,7 @@ title: PrepGenie
 emoji: 🐨
 colorFrom: gray
 colorTo: blue
-sdk: streamlit
+sdk: gradio
 sdk_version: 1.39.0
 app_file: login module/main.py
 pinned: false
