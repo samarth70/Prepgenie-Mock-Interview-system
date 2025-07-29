@@ -21,7 +21,7 @@ from firebase_admin import credentials, auth, firestore
 load_dotenv()
 
 # Initialize Firebase Admin SDK (Use environment variable for credentials path or default)
-firebase_credentials_path = os.getenv("FIREBASE_CREDENTIALS_PATH", "prepgenie-64134-firebase-adminsdk-fbsvc-3370ac4ab9.json")
+firebase_credentials_path = os.getenv("prepgenie-64134-firebase-adminsdk-fbsvc-3370ac4ab9.json")
 if not firebase_admin._apps:
     try:
         # Try loading from file path first
