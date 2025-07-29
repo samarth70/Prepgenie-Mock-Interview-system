@@ -716,8 +716,7 @@ def login(email, password):
         return (
             "Firebase not initialized. Login unavailable.",
             gr.update(visible=True), gr.update(visible=False), gr.update(visible=False),
-            "", "", "", ""
-        )
+            "", "", "", "")
     if not email or not password or not username:
         # Return exactly 9 values for this case too
         return (
