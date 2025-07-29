@@ -35,8 +35,8 @@ except Exception as e:
 # --- Helper Functions (Logic from Streamlit) ---
 
 def getallinfo(data):
-    if not data.strip():
-        return "No data provided."
+    if not data or not data.strip(): # Check for None or empty/whitespace
+        return "No data provided or data is empty."
     text = f"""{data} is given by the user. Make sure you are getting the details like name, experience,
             education, skills of the user like in a resume. If the details are not provided return: not a resume.
             If details are provided then please try again and format the whole in a single paragraph covering all the information. """
@@ -49,6 +49,8 @@ def getallinfo(data):
         return "Error processing resume data."
 
 def file_processing(pdf_file_path): # Takes file path now
+    if not pdf_file_path:
+        return ""
     try:
         with open(pdf_file_path, "rb") as f:
             reader = PyPDF2.PdfReader(f)
@@ -61,6 +63,10 @@ def file_processing(pdf_file_path): # Takes file path now
         return ""
 
 def get_embedding(text):
+    if not text or not text.strip():
+         print("Empty text provided for embedding.")
+         return np.zeros((1, 768)) # Return dummy embedding for empty text
+
     if not BERT_AVAILABLE or not model or not tokenizer:
         print("BERT model not available for embedding.")
         # Return a dummy embedding or handle the error appropriately
@@ -77,22 +83,34 @@ def get_embedding(text):
         return np.zeros((1, 768)) # Return dummy embedding on error
 
 def generate_feedback(question, answer):
+    # Handle empty inputs
+    if not question or not question.strip() or not answer or not answer.strip():
+        return "0.00"
+
     try:
         question_embedding = get_embedding(question)
         answer_embedding = get_embedding(answer)
-        # Calculate cosine similarity
-        dot_product = np.dot(question_embedding, answer_embedding.T)
-        norms = np.linalg.norm(question_embedding) * np.linalg.norm(answer_embedding)
+        # Calculate cosine similarity (ensure correct shapes)
+        # np.dot expects 1D or 2D arrays. Squeeze to remove single-dimensional entries.
+        q_emb = np.squeeze(question_embedding)
+        a_emb = np.squeeze(answer_embedding)
+
+        dot_product = np.dot(q_emb, a_emb)
+        norms = np.linalg.norm(q_emb) * np.linalg.norm(a_emb)
         if norms == 0:
             similarity_score = 0.0
         else:
             similarity_score = dot_product / norms
-        return f"{similarity_score[0][0]:.2f}" # Format as string
+        return f"{similarity_score:.2f}" # Format as string with 2 decimal places
     except Exception as e:
         print(f"Error generating feedback: {e}")
         return "0.00"
 
 def generate_questions(roles, data):
+    # Handle empty inputs
+    if not roles or (isinstance(roles, list) and not any(roles)) or not data or not data.strip():
+        return ["Could you please introduce yourself based on your resume?"]
+
     questions = []
     # Ensure roles is a list and join if needed
     if isinstance(roles, list):
@@ -130,8 +148,16 @@ def generate_questions(roles, data):
     return questions
 
 def generate_overall_feedback(data, percent, answer, questions):
-    # Ensure percent is a string for formatting
-    percent_str = str(percent)
+    # Handle empty inputs
+    if not data or not data.strip() or not answer or not answer.strip() or not questions:
+        return "Unable to generate feedback due to missing information."
+
+    # Ensure percent is a string for formatting, handle potential float input
+    if isinstance(percent, float):
+        percent_str = f"{percent:.2f}"
+    else:
+        percent_str = str(percent)
+
     prompt = f"""As an interviewer, provide concise feedback (max 150 words) for candidate {data}.
     Questions asked: {questions}
     Candidate's answers: {answer}
@@ -150,6 +176,15 @@ def generate_overall_feedback(data, percent, answer, questions):
         return "Feedback could not be generated."
 
 def generate_metrics(data, answer, question):
+    # Handle empty inputs
+    if not data or not data.strip() or not answer or not answer.strip() or not question or not question.strip():
+        # Return default 0 metrics for empty inputs
+        return {
+            "Communication skills": 0.0, "Teamwork and collaboration": 0.0,
+            "Problem-solving and critical thinking": 0.0, "Time management and organization": 0.0,
+            "Adaptability and resilience": 0.0
+        }
+
     metrics = {}
     text = f"""Here is the overview of the candidate {data}. In the interview the question asked was {question}.
     The candidate has answered the question as follows: {answer}. Based on the answers provided, give me the metrics related to:
@@ -177,9 +212,11 @@ def generate_metrics(data, answer, question):
                 key, value_str = line.split(':', 1)
                 key = key.strip()
                 try:
-                    value = float(value_str.strip())
+                    # Handle potential extra characters after the number
+                    value_clean = value_str.strip().split()[0] # Take first token
+                    value = float(value_clean)
                     metrics[key] = value
-                except ValueError:
+                except (ValueError, IndexError):
                     # If parsing fails, set to 0
                     metrics[key] = 0.0
         # Ensure all expected metrics are present
@@ -222,7 +259,7 @@ def process_resume(file_obj):
 
         # Process the PDF
         raw_text = file_processing(file_path)
-        if not raw_text.strip():
+        if not raw_text or not raw_text.strip():
              os.remove(file_path)
              os.rmdir(temp_dir)
              return ("Could not extract text from the PDF.", gr.update(visible=False), gr.update(visible=False),
@@ -264,7 +301,8 @@ def process_resume(file_obj):
 
 def start_interview(roles, processed_resume_data):
     """Starts the interview process."""
-    if not roles or not processed_resume_
+    # Corrected the condition check
+    if not roles or (isinstance(roles, list) and not any(roles)) or not processed_resume_data or not processed_resume_data.strip():
         return ("Please select a role and ensure resume is processed.", "", [], [], {}, {},
                 gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
                 gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
@@ -586,12 +624,16 @@ with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
         inputs=[role_selection, processed_resume_data_hidden],
         outputs=[
             file_status, question_display,
-            interview_state["questions"], interview_state["answers"],
-            interview_state["interactions"], interview_state["metrics_list"],
+            # Note: Directly accessing state dict keys in outputs like interview_state["questions"] is problematic.
+            # Gradio expects component objects or gr.Updates. We pass the state object itself.
+            # The function returns values to update UI components and the entire state dict.
+            # interview_state["questions"], interview_state["answers"], # Invalid
+            # interview_state["interactions"], interview_state["metrics_list"], # Invalid
+            # Outputs for UI updates
             audio_input, submit_answer_btn, next_question_btn,
             submit_interview_btn, feedback_display, metrics_display,
             question_display, answer_instructions, # These are UI updates
-            interview_state # Update the state object
+            interview_state # Update the state object itself
         ]
     )
 
