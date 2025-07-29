@@ -13,22 +13,53 @@ load_dotenv()
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 text_model = genai.GenerativeModel("gemini-2.5-flash")
 
-# --- Helper Functions (Logic from Streamlit Chat) ---
 
-def file_processing_chat(pdf_file_path):
+
+def file_processing_chat(pdf_file_obj): # Take the Gradio file object
     """Processes the uploaded PDF file."""
-    if not pdf_file_path:
+    # --- CORRECTION: Handle the Gradio file object correctly ---
+    # Check if the input is None or falsy
+    if not pdf_file_obj:
+        print("No file object provided to file_processing_chat.")
         return ""
+
     try:
-        with open(pdf_file_path, "rb") as f:
+        # Determine the correct file path from the Gradio object
+        # Gradio File component usually provides an object with a 'name' attribute
+        # containing the path to the temporary file.
+        if hasattr(pdf_file_obj, 'name'):
+            # This is the standard way for Gradio File uploads
+            file_path = pdf_file_obj.name
+        else:
+            # Fallback: If it's already a string path (less common in recent Gradio)
+            # or if the structure is different, try using it directly.
+            # Converting to string is a safe fallback.
+            file_path = str(pdf_file_obj)
+            print(f"File object does not have 'name' attribute. Using str(): {file_path}")
+
+        print(f"Attempting to process file at path: {file_path}")
+
+        # --- Use the file path with PyPDF2 ---
+        # Open the file using the resolved path string
+        with open(file_path, "rb") as f: # Open in binary read mode
             reader = PyPDF2.PdfReader(f)
             text = ""
             for page in reader.pages:
                 text += page.extract_text()
         return text
-    except Exception as e:
-        print(f"Error processing PDF: {e}")
+    except FileNotFoundError:
+        error_msg = f"File not found at path: {file_path}"
+        print(error_msg)
         return ""
+    except PyPDF2.errors.PdfReadError as e:
+        error_msg = f"Error reading PDF file {file_path}: {e}"
+        print(error_msg)
+        return ""
+    except Exception as e: # Catch other potential errors during file handling
+        error_msg = f"Unexpected error processing PDF from object {pdf_file_obj}: {e}"
+        print(error_msg)
+        return ""
+
 
 def getallinfo_chat(data):
     """Formats resume data."""
