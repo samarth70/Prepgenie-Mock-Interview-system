@@ -4,13 +4,12 @@ import os
 import tempfile
 import PyPDF2
 import google.generativeai as genai
-import tensorflow as tf
+# import tensorflow as tf # Not directly used here, but models might need it
 from transformers import BertTokenizer, TFBertModel
 import numpy as np
 import speech_recognition as sr
-from gtts import gTTS
-import pygame
-import io
+# from gtts import gTTS # Not used directly in main app logic here
+# import pygame # Not used directly in main app logic here
 import time
 from dotenv import load_dotenv
 
@@ -18,42 +17,68 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Configure Generative AI
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY")) # Use environment variable or set a default
-text_model = genai.GenerativeModel("gemini-2.5-flash")
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY") or "YOUR_DEFAULT_API_KEY_HERE") # Use environment variable or set a default
+text_model = genai.GenerativeModel("gemini-pro")
 
-# Load BERT model and tokenizer
-model = TFBertModel.from_pretrained("bert-base-uncased")
-tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
+# Load BERT model and tokenizer (Consider lazy loading if performance is an issue)
+try:
+    model = TFBertModel.from_pretrained("bert-base-uncased")
+    tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
+    BERT_AVAILABLE = True
+except Exception as e:
+    print(f"Warning: Could not load BERT model/tokenizer: {e}")
+    BERT_AVAILABLE = False
+    model = None
+    tokenizer = None
 
 # --- Helper Functions (Logic from Streamlit) ---
 
 def getallinfo(data):
+    if not data.strip():
+        return "No data provided."
     text = f"""{data} is given by the user. Make sure you are getting the details like name, experience,
             education, skills of the user like in a resume. If the details are not provided return: not a resume.
             If details are provided then please try again and format the whole in a single paragraph covering all the information. """
-    response = text_model.generate_content(text)
-    response.resolve()
-    return response.text
+    try:
+        response = text_model.generate_content(text)
+        response.resolve()
+        return response.text
+    except Exception as e:
+        print(f"Error in getallinfo: {e}")
+        return "Error processing resume data."
 
 def file_processing(pdf_file_path): # Takes file path now
-    with open(pdf_file_path, "rb") as f: # Open file from path
-        reader = PyPDF2.PdfReader(f)
-        text = ""
-        for page in reader.pages:
-            text += page.extract_text()
-    return text
+    try:
+        with open(pdf_file_path, "rb") as f:
+            reader = PyPDF2.PdfReader(f)
+            text = ""
+            for page in reader.pages:
+                text += page.extract_text()
+        return text
+    except Exception as e:
+        print(f"Error processing PDF: {e}")
+        return ""
 
 def get_embedding(text):
-    encoded_text = tokenizer(text, return_tensors="tf", truncation=True, padding=True) # Add padding/truncation
-    output = model(encoded_text)
-    embedding = output.last_hidden_state[:, 0, :]
-    return embedding
+    if not BERT_AVAILABLE or not model or not tokenizer:
+        print("BERT model not available for embedding.")
+        # Return a dummy embedding or handle the error appropriately
+        return np.zeros((1, 768)) # Dummy embedding size for bert-base-uncased
+
+    try:
+        # Add padding/truncation to handle variable lengths robustly
+        encoded_text = tokenizer(text, return_tensors="tf", truncation=True, padding=True, max_length=512)
+        output = model(encoded_text)
+        embedding = output.last_hidden_state[:, 0, :] # CLS token embedding
+        return embedding.numpy() # Convert to numpy for easier handling
+    except Exception as e:
+        print(f"Error getting embedding: {e}")
+        return np.zeros((1, 768)) # Return dummy embedding on error
 
 def generate_feedback(question, answer):
     try:
         question_embedding = get_embedding(question)
         answer_embedding = get_embedding(answer)
-        tf.experimental.numpy.experimental_enable_numpy_behavior()
         # Calculate cosine similarity
         dot_product = np.dot(question_embedding, answer_embedding.T)
         norms = np.linalg.norm(question_embedding) * np.linalg.norm(answer_embedding)
@@ -219,6 +244,11 @@ def process_resume(file_obj):
 
         # Process the PDF
         raw_text = file_processing(file_path)
+        if not raw_text.strip():
+             os.remove(file_path)
+             os.rmdir(temp_dir)
+             return "Could not extract text from the PDF.", gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
+
         processed_data = getallinfo(raw_text)
 
         # Clean up temporary file
@@ -245,32 +275,17 @@ def process_resume(file_obj):
     except Exception as e:
         return f"Error processing file: {str(e)}", gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), None
 
-# In PrepGenie/app.py, replace the existing start_interview function with this:
-
 def start_interview(roles, processed_resume_data):
     """Starts the interview process."""
     if not roles or not processed_resume_data:
-        # Return initial/empty states for UI components
-        return (
-            "Please select a role and ensure resume is processed.",
-            "", # initial question
-            gr.update(visible=False), # audio_input
-            gr.update(visible=False), # submit_answer_btn
-            gr.update(visible=False), # next_question_btn
-            gr.update(visible=False), # submit_interview_btn
-            gr.update(visible=False), # feedback_display
-            gr.update(visible=False), # metrics_display
-            gr.update(visible=False), # question_display (redundant, but matches output count)
-            gr.update(visible=False), # answer_instructions
-            {} # interview_state (empty dict)
-        )
+        return "Please select a role and ensure resume is processed.", "", [], [], {}, {}, gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
 
     try:
         questions = generate_questions(roles, processed_resume_data)
         initial_question = questions[0] if questions else "Could you please introduce yourself?"
 
         # Initialize state for the interview
-        interview_state_data = {
+        interview_state = {
             "questions": questions,
             "current_q_index": 0,
             "answers": [],
@@ -280,52 +295,47 @@ def start_interview(roles, processed_resume_data):
             "resume_data": processed_resume_data
         }
 
-        # Return values matching the outputs list for start_interview_btn.click
         return (
             "Interview started. Please answer the first question.",
             initial_question,
-            gr.update(visible=True), # audio_input visible
-            gr.update(visible=True), # submit_answer_btn visible
-            gr.update(visible=True), # next_question_btn visible
-            gr.update(visible=False), # submit_interview_btn hidden initially
-            gr.update(visible=False), # feedback_display hidden initially
-            gr.update(visible=False), # metrics_display hidden initially
-            gr.update(visible=True), # question_display visible
-            gr.update(visible=True), # answer_instructions visible
-            interview_state_data # Update the interview_state object
+            questions,
+            [], # answers
+            {}, # interactions
+            {}, # metrics (initially empty)
+            gr.update(visible=True), # Audio input
+            gr.update(visible=True), # Submit Answer button
+            gr.update(visible=True), # Next Question button
+            gr.update(visible=False), # Submit Interview button (hidden initially)
+            gr.update(visible=False), # Feedback textbox
+            gr.update(visible=False), # Metrics display
+            gr.update(visible=False), # Evaluation button (hidden initially)
+            gr.update(visible=True), # Question display
+            gr.update(visible=True), # Answer instructions
+            interview_state
         )
     except Exception as e:
-        error_msg = f"Error starting interview: {str(e)}"
-        print(error_msg) # Log the error
-        return (
-            error_msg,
-            "", # No question
-            gr.update(visible=False), # Hide components
-            gr.update(visible=False),
-            gr.update(visible=False),
-            gr.update(visible=False),
-            gr.update(visible=False),
-            gr.update(visible=False),
-            gr.update(visible=False), # question_display
-            gr.update(visible=False), # answer_instructions
-            {} # Empty state on error
-        )
+        return f"Error starting interview: {str(e)}", "", [], [], {}, {}, gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), None
+
 def submit_answer(audio, interview_state):
     """Handles submitting an answer via audio."""
     if not audio or not interview_state:
-        return "No audio recorded or interview not started.", "", interview_state, gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
+        return "No audio recorded or interview not started.", "", interview_state, gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
 
     try:
         # Save audio to a temporary file
         temp_dir = tempfile.mkdtemp()
         audio_file_path = os.path.join(temp_dir, "recorded_audio.wav")
-        audio[1].save(audio_file_path) # audio is a tuple (sample_rate, numpy_array)
+        # audio is a tuple (sample_rate, numpy_array)
+        sample_rate, audio_data = audio
+        # Use soundfile or scipy to save the numpy array as a WAV file
+        import soundfile as sf
+        sf.write(audio_file_path, audio_data, sample_rate)
 
         # Convert audio file to text
         r = sr.Recognizer()
         with sr.AudioFile(audio_file_path) as source:
-            audio_data = r.record(source)
-        answer_text = r.recognize_google(audio_data)
+            audio_data_sr = r.record(source)
+        answer_text = r.recognize_google(audio_data_sr)
         print(f"Recognized Answer: {answer_text}")
 
         # Clean up temporary audio file
@@ -377,7 +387,7 @@ def submit_answer(audio, interview_state):
 def next_question(interview_state):
     """Moves to the next question or ends the interview."""
     if not interview_state:
-        return "Interview not started.", "", interview_state, gr.update(visible=True), gr.update(visible=True), gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
+        return "Interview not started.", "", interview_state, gr.update(visible=True), gr.update(visible=True), gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
 
     current_q_index = interview_state["current_q_index"]
     total_questions = len(interview_state["questions"])
@@ -431,117 +441,148 @@ def submit_interview(interview_state):
 
     return "Interview submitted successfully!", interview_state
 
+# --- Login and Navigation Logic ---
+
+def login(username, password):
+    # Simple mock login - replace with real authentication logic
+    # For demo, accept any non-empty username/password
+    if username and password:
+        return f"Welcome, {username}!", gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), "", ""
+    else:
+        return "Please enter username and password.", gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), username, password
+
+def logout():
+    return "", gr.update(visible=False), gr.update(visible=True), gr.update(visible=True), "", ""
+
+def navigate_to_interview():
+    return gr.update(visible=True), gr.update(visible=False) # Show interview, hide chat
+
+def navigate_to_chat():
+    return gr.update(visible=False), gr.update(visible=True) # Hide interview, show chat
+
 # --- Gradio Interface ---
 
 with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
-    gr.Markdown("# 🦈 PrepGenie - Mock Interview")
-    gr.Markdown("Prepare for your next interview with AI-powered feedback.")
-
+    gr.Markdown("# 🦈 PrepGenie")
     # State to hold interview data
     interview_state = gr.State({})
+    # State for username
+    user_state = gr.State("")
 
-    # File Upload Section
-    with gr.Row():
-        with gr.Column():
-            file_upload = gr.File(label="Upload Resume (PDF)", file_types=[".pdf"])
-            process_btn = gr.Button("Process Resume")
-        with gr.Column():
-            file_status = gr.Textbox(label="Status", interactive=False)
+    # --- Login Section ---
+    with gr.Column(visible=True) as login_section:
+        gr.Markdown("## Login")
+        username_input = gr.Textbox(label="Username")
+        password_input = gr.Textbox(label="Password", type="password")
+        login_btn = gr.Button("Login")
+        login_status = gr.Textbox(label="Status", interactive=False)
+        # Initially visible login section
+        login_btn.click(
+            fn=login,
+            inputs=[username_input, password_input],
+            outputs=[login_status, login_section, interview_selection, chat_selection, username_input, password_input]
+        )
 
-    # Role Selection (Initially hidden)
-    role_selection = gr.Dropdown(
-        choices=["Data Scientist", "Software Engineer", "Product Manager", "Data Analyst", "Business Analyst"],
-        multiselect=True,
-        label="Select Job Role(s)",
-        visible=False
-    )
-    start_interview_btn = gr.Button("Start Interview", visible=False)
+    # --- Main App Sections (Initially Hidden) ---
+    with gr.Column(visible=False) as main_app:
+        with gr.Row():
+            with gr.Column(scale=1):
+                 logout_btn = gr.Button("Logout")
+            with gr.Column(scale=4):
+                gr.Markdown(f"### Welcome, User!") # This won't dynamically update easily in Gradio Blocks without JS
 
-    # Interview Section (Initially hidden)
-    question_display = gr.Textbox(label="Question", interactive=False, visible=False)
-    answer_instructions = gr.Markdown("Click 'Record Answer' and speak your response.", visible=False)
-    audio_input = gr.Audio(label="Record Answer", type="numpy", visible=False)
-    submit_answer_btn = gr.Button("Submit Answer", visible=False)
-    next_question_btn = gr.Button("Next Question", visible=False)
-    submit_interview_btn = gr.Button("Submit Interview", visible=False, variant="primary")
+        with gr.Row():
+            with gr.Column(scale=1):
+                interview_btn = gr.Button("Mock Interview")
+                chat_btn = gr.Button("Chat with Resume")
+            with gr.Column(scale=4):
+                # --- Interview Section ---
+                with gr.Column(visible=False) as interview_selection:
+                    gr.Markdown("## Mock Interview")
+                    # File Upload Section
+                    with gr.Row():
+                        with gr.Column():
+                            file_upload = gr.File(label="Upload Resume (PDF)", file_types=[".pdf"])
+                            process_btn = gr.Button("Process Resume")
+                        with gr.Column():
+                            file_status = gr.Textbox(label="Status", interactive=False)
 
-    # Feedback and Metrics (Initially hidden)
-    answer_display = gr.Textbox(label="Your Answer", interactive=False, visible=False)
-    feedback_display = gr.Textbox(label="Feedback", interactive=False, visible=False)
-    metrics_display = gr.JSON(label="Metrics", visible=False)
+                    # Role Selection (Initially hidden)
+                    role_selection = gr.Dropdown(
+                        choices=["Data Scientist", "Software Engineer", "Product Manager", "Data Analyst", "Business Analyst"],
+                        multiselect=True,
+                        label="Select Job Role(s)",
+                        visible=False
+                    )
+                    start_interview_btn = gr.Button("Start Interview", visible=False)
 
-    # Hidden textbox to hold processed resume data temporarily
-    processed_resume_data = gr.Textbox(visible=False)
+                    # Interview Section (Initially hidden)
+                    question_display = gr.Textbox(label="Question", interactive=False, visible=False)
+                    answer_instructions = gr.Markdown("Click 'Record Answer' and speak your response.", visible=False)
+                    audio_input = gr.Audio(label="Record Answer", type="numpy", visible=False)
+                    submit_answer_btn = gr.Button("Submit Answer", visible=False)
+                    next_question_btn = gr.Button("Next Question", visible=False)
+                    submit_interview_btn = gr.Button("Submit Interview", visible=False, variant="primary")
 
-    # --- Event Listeners ---
+                    # Feedback and Metrics (Initially hidden)
+                    answer_display = gr.Textbox(label="Your Answer", interactive=False, visible=False)
+                    feedback_display = gr.Textbox(label="Feedback", interactive=False, visible=False)
+                    metrics_display = gr.JSON(label="Metrics", visible=False)
 
-    process_btn.click(
-        fn=process_resume,
-        inputs=[file_upload],
-        outputs=[
-            file_status, role_selection, start_interview_btn,
-            question_display, answer_instructions, audio_input,
-            submit_answer_btn, next_question_btn, submit_interview_btn,
-            answer_display, feedback_display, metrics_display,
-            processed_resume_data # Pass processed data for next step
-        ]
-    )
+                    # Hidden textbox to hold processed resume data temporarily
+                    processed_resume_data = gr.Textbox(visible=False)
 
-    # Start Interview
-    start_interview_btn.click(
-        fn=start_interview,
-        inputs=[role_selection, processed_resume_data],
-        outputs=[
-            file_status,           # Status message
-            question_display,      # First question text
-            audio_input,           # Audio input visibility
-            submit_answer_btn,     # Submit Answer button visibility
-            next_question_btn,     # Next Question button visibility
-            submit_interview_btn,  # Submit Interview button visibility (initially hidden)
-            feedback_display,      # Feedback textbox (initially hidden/empty)
-            metrics_display,       # Metrics display (initially hidden/empty)
-            question_display,      # (Duplicate reference, likely not needed, but kept for structure)
-            answer_instructions,   # Answer instructions visibility
-            interview_state        # THE KEY CHANGE: Update the entire state object
-        ]
-    )
+                    # --- Event Listeners for Interview ---
+                    # Process Resume
+                    process_btn.click(
+                        fn=process_resume,
+                        inputs=[file_upload],
+                        outputs=[file_status, role_selection, start_interview_btn, question_display, answer_instructions, audio_input, submit_answer_btn, next_question_btn, submit_interview_btn, answer_display, feedback_display, metrics_display, processed_resume_data]
+                    )
+
+                    # Start Interview
+                    start_interview_btn.click(
+                        fn=start_interview,
+                        inputs=[role_selection, processed_resume_data],
+                        outputs=[file_status, question_display, interview_state["questions"], interview_state["answers"], interview_state["interactions"], interview_state["metrics_list"], audio_input, submit_answer_btn, next_question_btn, submit_interview_btn, feedback_display, metrics_display, interview_state, question_display, answer_instructions, interview_state]
+                    )
+
+                    # Submit Answer
+                    submit_answer_btn.click(
+                        fn=submit_answer,
+                        inputs=[audio_input, interview_state],
+                        outputs=[file_status, answer_display, interview_state, feedback_display, feedback_display, metrics_display, metrics_display, audio_input, submit_answer_btn, next_question_btn, submit_interview_btn, question_display, answer_instructions]
+                    )
+
+                    # Next Question
+                    next_question_btn.click(
+                        fn=next_question,
+                        inputs=[interview_state],
+                        outputs=[file_status, question_display, interview_state, audio_input, submit_answer_btn, next_question_btn, feedback_display, metrics_display, submit_interview_btn, question_display, answer_instructions, answer_display, metrics_display]
+                    )
+
+                    # Submit Interview (Placeholder for evaluation trigger)
+                    submit_interview_btn.click(
+                        fn=submit_interview,
+                        inputs=[interview_state],
+                        outputs=[file_status, interview_state]
+                        # In a full app, you might navigate to an evaluation page here
+                    )
+
+                # --- Chat Section ---
+                with gr.Column(visible=False) as chat_selection:
+                    gr.Markdown("## Chat with Resume (Placeholder)")
+                    gr.Markdown("This section would contain the chat interface logic from `chat.py`.")
+                    # You would integrate the chat logic here, similar to how interview is done.
+                    # For now, it's a placeholder.
+                    chat_placeholder = gr.Textbox(label="Chat Placeholder", value="Chat functionality would be integrated here.", interactive=False)
 
 
-
-    # Submit Answer
-    submit_answer_btn.click(
-        fn=submit_answer,
-        inputs=[audio_input, interview_state],
-        outputs=[
-            file_status, answer_display, interview_state,
-            feedback_display, feedback_display, # Update value and visibility
-            metrics_display, metrics_display,   # Update value and visibility
-            audio_input, submit_answer_btn, next_question_btn,
-            submit_interview_btn, question_display, answer_instructions
-        ]
-    )
-    
-    # Next Question
-    next_question_btn.click(
-        fn=next_question,
-        inputs=[interview_state],
-        outputs=[
-            file_status, question_display, interview_state,
-            audio_input, submit_answer_btn, next_question_btn,
-            feedback_display, metrics_display, submit_interview_btn,
-            question_display, answer_instructions,
-            answer_display, metrics_display # Clear previous answer/metrics display
-        ]
-    )
-    
-    # Submit Interview (Placeholder for evaluation trigger)
-    submit_interview_btn.click(
-        fn=submit_interview,
-        inputs=[interview_state],
-        outputs=[file_status, interview_state]
-        # In a full app, you might navigate to an evaluation page here
-    )
+        # Navigation buttons
+        interview_btn.click(fn=navigate_to_interview, inputs=None, outputs=[interview_selection, chat_selection])
+        chat_btn.click(fn=navigate_to_chat, inputs=None, outputs=[interview_selection, chat_selection])
+        logout_btn.click(fn=logout, inputs=None, outputs=[login_status, login_section, interview_selection, chat_selection, username_input, password_input])
 
 # Run the app
 if __name__ == "__main__":
-    demo.launch() # You can add server_name="0.0.0.0", server_port=7860 for external access
+    demo.launch(share=True) # You can add server_name="0.0.0.0", server_port=7860 for external access
