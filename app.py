@@ -718,11 +718,19 @@ def login(email, password):
             gr.update(visible=True), gr.update(visible=False), gr.update(visible=False),
             "", "", "", ""
         )
-    if not email or not password:
+    if not email or not password or not username:
+        # Return exactly 9 values for this case too
         return (
-            "Please enter email and password.",
-            gr.update(visible=True), gr.update(visible=False), gr.update(visible=False),
-            email, password, "", ""
+            "Please fill all fields.",           # Line 760
+            gr.update(visible=False),            # login_section (Line 761)
+            gr.update(visible=True),             # signup_section (Line 762)
+            gr.update(visible=False),            # main_app (Line 763)
+            gr.update(visible=False),            # Placeholder/adjust (Line 764)
+            email,                               # signup_email_input (Line 765)
+            password,                            # signup_password_input (Line 766)
+            username,                            # signup_username_input (Line 767)
+            "",                                  # user_state (Line 768)
+            ""                                   # user_email_state (Line 769)
         )
     try:
         user = auth.get_user_by_email(email)
