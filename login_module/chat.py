@@ -10,8 +10,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Configure Generative AI
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY") or "YOUR_DEFAULT_API_KEY_HERE")
-text_model = genai.GenerativeModel("gemini-pro")
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+text_model = genai.GenerativeModel("gemini-2.5-flash")
 
 # --- Helper Functions (Logic from Streamlit Chat) ---
 
