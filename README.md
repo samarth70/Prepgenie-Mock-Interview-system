@@ -1,6 +1,6 @@
 ---
 title: PrepGenie
-emoji: 🐨
+emoji: 🚀
 colorFrom: gray
 colorTo: blue
 sdk: gradio
