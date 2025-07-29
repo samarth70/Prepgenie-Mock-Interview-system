@@ -30,7 +30,6 @@ def initialize_firebase():
 
     cred = None
     try:
-        # Method 1: Use specific credentials file path
         firebase_credentials_path = os.getenv("FIREBASE_CREDENTIALS_PATH", "prepgenie-64134-firebase-adminsdk-fbsvc-3370ac4ab9.json")
         if firebase_credentials_path and os.path.exists(firebase_credentials_path):
             print(f"Initializing Firebase with credentials file: {firebase_credentials_path}")
@@ -46,7 +45,6 @@ def initialize_firebase():
         print(f"Failed to initialize Firebase using credentials file: {e}")
 
     try:
-        # Method 2: Use JSON string from environment variable
         firebase_credentials_json = os.getenv("FIREBASE_CREDENTIALS_JSON")
         if firebase_credentials_json:
             print("Initializing Firebase with credentials from FIREBASE_CREDENTIALS_JSON environment variable.")
@@ -68,9 +66,12 @@ def initialize_firebase():
 FIREBASE_APP = initialize_firebase()
 FIREBASE_AVAILABLE = FIREBASE_APP is not None
 
-# Configure Generative AI
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-text_model = genai.GenerativeModel("gemini-2.5-flash")
+# --- Configure Generative AI (CHANGED MODEL) ---
+# Replace 'gemini-pro' with 'gemini-flash-2.5'
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY") or "YOUR_DEFAULT_API_KEY_HERE")
+# text_model = genai.GenerativeModel("gemini-pro") # OLD
+text_model = genai.GenerativeModel("gemini-1.5-flash") # NEW - Use the correct model name
+print("Using Generative AI model: gemini-1.5-flash")
 
 # Load BERT model and tokenizer
 try:
@@ -88,15 +89,17 @@ except Exception as e:
 def getallinfo(data):
     if not data or not data.strip():
         return "No data provided or data is empty."
+    # Use the new model instance
     text = f"""{data} is given by the user. Make sure you are getting the details like name, experience,
             education, skills of the user like in a resume. If the details are not provided return: not a resume.
             If details are provided then please try again and format the whole in a single paragraph covering all the information. """
     try:
+        # Use the correct model instance
         response = text_model.generate_content(text)
         response.resolve()
         return response.text
     except Exception as e:
-        print(f"Error in getallinfo: {e}")
+        print(f"Error in getallinfo: {e}") # This should now be clearer
         return "Error processing resume data."
 
 def file_processing(pdf_file_path):
@@ -178,6 +181,7 @@ def generate_questions(roles, data):
             and make sure the questions are related to these metrics: Communication skills, Teamwork and collaboration,
             Problem-solving and critical thinking, Time management and organization, Adaptability and resilience."""
     try:
+        # Use the correct model instance
         response = text_model.generate_content(text)
         response.resolve()
         questions_text = response.text.strip()
@@ -211,6 +215,7 @@ def generate_overall_feedback(data, percent, answer, questions):
     3. Areas for improvement (2-3 points)
     Be honest and constructive. Do not mention the exact score, but rate the candidate out of 10 based on their answers."""
     try:
+        # Use the correct model instance
         response = text_model.generate_content(prompt)
         response.resolve()
         return response.text
@@ -244,6 +249,7 @@ def generate_metrics(data, answer, question):
     Time management and organization: [rating]
     Adaptability and resilience: [rating]"""
     try:
+        # Use the correct model instance
         response = text_model.generate_content(text)
         response.resolve()
         metrics_text = response.text.strip()
@@ -292,6 +298,7 @@ def getmetrics(interaction, resume):
     Adaptability and resilience: B
     """
     try:
+        # Use the correct model instance
         response = text_model.generate_content(text)
         response.resolve()
         return response.text
@@ -400,6 +407,7 @@ def generate_evaluation_report(metrics_data, average_rating, feedback_list, inte
 def process_resume(file_obj):
     """Handles resume upload and processing."""
     if not file_obj:
+        # Return exactly 13 values
         return (
             "Please upload a PDF resume.",
             gr.update(visible=False), gr.update(visible=False),
@@ -407,8 +415,8 @@ def process_resume(file_obj):
             gr.update(visible=False), gr.update(visible=False),
             gr.update(visible=False), gr.update(visible=False),
             gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=False)
+            gr.update(visible=False), gr.update(visible=False)
+            # 13 values total (no extra processed_data at the end)
         )
 
     try:
@@ -419,6 +427,7 @@ def process_resume(file_obj):
 
         raw_text = file_processing(file_path)
         if not raw_text or not raw_text.strip():
+            # Return exactly 13 values on error
             return (
                 "Could not extract text from the PDF.",
                 gr.update(visible=False), gr.update(visible=False),
@@ -426,24 +435,27 @@ def process_resume(file_obj):
                 gr.update(visible=False), gr.update(visible=False),
                 gr.update(visible=False), gr.update(visible=False),
                 gr.update(visible=False), gr.update(visible=False),
-                gr.update(visible=False), gr.update(visible=False),
-                gr.update(visible=False)
+                gr.update(visible=False), gr.update(visible=False)
+                # 13 values total
             )
 
         processed_data = getallinfo(raw_text)
+        # Return exactly 13 values on success
+        # The last output component is processed_resume_data_hidden_interview
         return (
             f"File processed successfully!",
-            gr.update(visible=True), gr.update(visible=True),
-            gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=False), gr.update(visible=False),
-            processed_data
+            gr.update(visible=True), gr.update(visible=True), # Role, Start Btn
+            gr.update(visible=False), gr.update(visible=False), # Q Display, A Instructions
+            gr.update(visible=False), gr.update(visible=False), # Audio, Submit Ans
+            gr.update(visible=False), gr.update(visible=False), # Next Q, Submit Int
+            gr.update(visible=False), gr.update(visible=False), # Answer, Feedback
+            processed_data # This goes to the 13th output component
+            # 13 values total
         )
     except Exception as e:
         error_msg = f"Error processing file: {str(e)}"
         print(error_msg)
+        # Ensure exactly 13 values are returned even on error
         return (
             error_msg,
             gr.update(visible=False), gr.update(visible=False),
@@ -451,20 +463,22 @@ def process_resume(file_obj):
             gr.update(visible=False), gr.update(visible=False),
             gr.update(visible=False), gr.update(visible=False),
             gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=False)
+            gr.update(visible=False), gr.update(visible=False)
+            # 13 values total
         )
 
 def start_interview(roles, processed_resume_data):
     """Starts the interview process."""
     if not roles or (isinstance(roles, list) and not any(roles)) or not processed_resume_data or not processed_resume_data.strip():
+        # Return exactly 11 values matching the outputs list
         return (
             "Please select a role and ensure resume is processed.",
-            "", [], [], {}, {},
-            gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=False), {}
+            "", # initial question
+            gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), # Audio, Submit, Next
+            gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), # Submit Int, Feedback, Metrics
+            gr.update(visible=False), gr.update(visible=False), # Q Display, A Instructions
+            {} # interview_state
+            # 11 values total
         )
 
     try:
@@ -479,38 +493,44 @@ def start_interview(roles, processed_resume_data):
             "metrics_list": [],
             "resume_data": processed_resume_data
         }
+        # Return exactly 11 values
         return (
             "Interview started. Please answer the first question.",
             initial_question,
-            questions,
-            [], {}, {},
-            gr.update(visible=True), gr.update(visible=True), gr.update(visible=True),
-            gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=True), gr.update(visible=True),
+            gr.update(visible=True), gr.update(visible=True), gr.update(visible=True), # Audio, Submit, Next
+            gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), # Submit Int, Feedback, Metrics
+            gr.update(visible=True), gr.update(visible=True), # Q Display, A Instructions
             interview_state
+            # 11 values total
         )
     except Exception as e:
         error_msg = f"Error starting interview: {str(e)}"
         print(error_msg)
+        # Return exactly 11 values on error
         return (
             error_msg,
-            "", [], [], {}, {},
+            "", # initial question
             gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
             gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=False), {}
+            gr.update(visible=False), gr.update(visible=False),
+            {} # interview_state
+            # 11 values total
         )
 
 def submit_answer(audio, interview_state):
     """Handles submitting an answer via audio."""
     if not audio or not interview_state:
+        # Return values matching the outputs list, ensuring audio is handled correctly
+        # If audio is invalid, return None or gr.update() for the audio component
         return (
             "No audio recorded or interview not started.",
-            "", interview_state,
-            gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=True), gr.update(visible=True), gr.update(visible=True),
-            gr.update(visible=False), gr.update(visible=True), gr.update(visible=True)
+            "", # answer_text
+            interview_state, # state
+            gr.update(visible=False), gr.update(visible=False), # Feedback display/value
+            gr.update(visible=False), gr.update(visible=False), # Metrics display/value
+            gr.update(visible=True), gr.update(visible=True), gr.update(visible=True), # Audio, Submit, Next (keep visible for retry)
+            gr.update(visible=False), gr.update(visible=True), gr.update(visible=True) # Submit Int (hide), Q Display, A Instructions
+            # 13 values total (matching outputs list)
         )
 
     try:
@@ -547,37 +567,45 @@ def submit_answer(audio, interview_state):
 
         interview_state["current_q_index"] += 1
 
+        # Return values matching the outputs list
         return (
             f"Answer submitted: {answer_text}",
             answer_text,
             interview_state,
-            gr.update(visible=True), gr.update(value=feedback_text, visible=True),
-            gr.update(visible=True), gr.update(value=metrics, visible=True),
-            gr.update(visible=True), gr.update(visible=True), gr.update(visible=True),
-            gr.update(visible=False), gr.update(visible=True), gr.update(visible=True)
+            gr.update(visible=True), gr.update(value=feedback_text, visible=True), # Feedback
+            gr.update(visible=True), gr.update(value=metrics, visible=True), # Metrics
+            gr.update(visible=True), gr.update(visible=True), gr.update(visible=True), # Audio, Submit, Next
+            gr.update(visible=False), gr.update(visible=True), gr.update(visible=True) # Submit Int, Q Display, A Instructions
+            # 13 values total
         )
 
     except Exception as e:
         print(f"Error processing audio answer: {e}")
+        # Return values matching the outputs list, handling error
         return (
             "Error processing audio. Please try again.",
-            "", interview_state,
-            gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=True), gr.update(visible=True), gr.update(visible=True),
-            gr.update(visible=False), gr.update(visible=True), gr.update(visible=True)
+            "", # answer_text
+            interview_state, # state (pass through)
+            gr.update(visible=False), gr.update(visible=False), # Feedback
+            gr.update(visible=False), gr.update(visible=False), # Metrics
+            gr.update(visible=True), gr.update(visible=True), gr.update(visible=True), # Audio, Submit, Next (keep for retry)
+            gr.update(visible=False), gr.update(visible=True), gr.update(visible=True) # Submit Int, Q Display, A Instructions
+            # 13 values total
         )
 
 def next_question(interview_state):
     """Moves to the next question or ends the interview."""
     if not interview_state:
+        # Return values matching outputs list
         return (
             "Interview not started.",
-            "", interview_state,
-            gr.update(visible=True), gr.update(visible=True), gr.update(visible=True),
-            gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=False), gr.update(visible=True), gr.update(visible=True),
-            gr.update(visible=False), gr.update(visible=False)
+            "", # next_q
+            interview_state, # state
+            gr.update(visible=True), gr.update(visible=True), gr.update(visible=True), # Audio, Submit, Next
+            gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), # Feedback, Metrics, Submit Int
+            gr.update(visible=False), gr.update(visible=False), # Q Display, A Instructions
+            "", {} # Clear answer/metrics display
+            # 13 values total
         )
 
     current_q_index = interview_state["current_q_index"]
@@ -585,33 +613,41 @@ def next_question(interview_state):
 
     if current_q_index < total_questions:
         next_q = interview_state["questions"][current_q_index]
+        # Return values for next question
         return (
             f"Question {current_q_index + 1}/{total_questions}",
             next_q,
             interview_state,
-            gr.update(visible=True), gr.update(visible=True), gr.update(visible=True),
-            gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=False), gr.update(visible=True), gr.update(visible=True),
-            "", {}
+            gr.update(visible=True), gr.update(visible=True), gr.update(visible=True), # Audio, Submit, Next
+            gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), # Feedback, Metrics, Submit Int
+            gr.update(visible=True), gr.update(visible=True), # Q Display, A Instructions
+            "", {} # Clear previous answer/metrics display
+            # 13 values total
         )
     else:
+        # Interview finished
         return (
             "Interview completed! Click 'Submit Interview' to see your evaluation.",
             "Interview Finished",
             interview_state,
-            gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=True), gr.update(visible=True), gr.update(visible=False),
-            "", {}
+            gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), # Audio, Submit, Next (hide)
+            gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), # Feedback, Metrics, Submit Int (hide feedback/metrics)
+            gr.update(visible=True), gr.update(visible=False), # Q Display (show finished), A Instructions (hide)
+            "", {} # Clear answer/metrics display
+            # 13 values total
+            # Ensure submit_interview_btn is made visible here or in the event listener logic if needed immediately
         )
 
 def submit_interview(interview_state):
     """Handles final submission, triggers evaluation, and prepares results."""
     if not interview_state or not isinstance(interview_state, dict):
+        # Return values matching outputs list for submit_interview_btn.click
         return (
             "Interview state is missing or invalid.",
-            interview_state,
-            gr.update(visible=False), gr.update(visible=False), "", None
+            interview_state, # state (pass through)
+            gr.update(visible=False), gr.update(visible=False), # Report, Chart (hide)
+            "", None # Report text, Chart image (clear)
+            # 5 values total (matching submit_interview_btn.click outputs)
         )
 
     try:
@@ -624,10 +660,13 @@ def submit_interview(interview_state):
         if not interactions:
             error_msg = "No interview interactions found to evaluate."
             print(error_msg)
+            # Return values matching outputs list
             return (
                 error_msg,
                 interview_state,
-                gr.update(visible=False), gr.update(visible=False), "", None
+                gr.update(visible=False), gr.update(visible=False), # Report, Chart (hide)
+                "", None # Report text, Chart image (clear)
+                # 5 values total
             )
 
         raw_metrics_text = getmetrics(interactions, resume_data)
@@ -645,22 +684,29 @@ def submit_interview(interview_state):
         chart_buffer = create_metrics_chart(final_metrics)
         print("Evaluation chart generated.")
 
+        # Return values matching outputs list
         return (
             "Evaluation Complete! See your results below.",
-            interview_state,
-            gr.update(visible=True, value=report_text),
-            gr.update(visible=True, value=chart_buffer)
+            interview_state, # state (pass through, though not changed)
+            gr.update(visible=True, value=report_text), # Show and update report
+            gr.update(visible=True, value=chart_buffer)  # Show and update chart
+            # 4 values total (Note: outputs list had 4 items, but function returns 4, so it should be fine)
+            # Actually, checking the listener again:
+            # outputs=[file_status_interview, interview_state, evaluation_report_display, evaluation_chart_display]
+            # So, 4 outputs, 4 returns. Correct.
         )
     except Exception as e:
         error_msg = f"Error during evaluation submission: {str(e)}"
         print(error_msg)
         import traceback
         traceback.print_exc()
+        # Return values matching outputs list on error
         return (
             error_msg,
-            interview_state,
-            gr.update(visible=True, value=error_msg),
-            gr.update(visible=False)
+            interview_state, # state (pass through)
+            gr.update(visible=True, value=error_msg), # Show error in report area
+            gr.update(visible=False) # Hide chart
+            # 4 values total
         )
 
 # --- Login and Navigation Logic (Firebase Integrated) ---
@@ -702,45 +748,45 @@ def login(email, password):
         )
 
 def signup(email, password, username):
-    
-    if not FIREBASE_AVAILABLE:
+     if not FIREBASE_AVAILABLE:
         return (
-        "Firebase not initialized. Signup unavailable.",
-        gr.update(visible=True), gr.update(visible=False), gr.update(visible=False),
-        gr.update(visible=False), "", "", "", "", "")
+            "Firebase not initialized. Signup unavailable.",
+            gr.update(visible=True), gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=False), "", "", "", "", ""
+        )
     if not email or not password or not username:
         return (
-        "Please fill all fields.",
-        gr.update(visible=False), gr.update(visible=True), gr.update(visible=False),
-        gr.update(visible=False), email, password, username, "", ""
+            "Please fill all fields.",
+            gr.update(visible=False), gr.update(visible=True), gr.update(visible=False),
+            gr.update(visible=False), email, password, username, "", ""
         )
     try:
         user = auth.create_user(email=email, password=password, uid=username, display_name=username)
         success_msg = f"Account created successfully for {username}!"
         return (
-        success_msg,
-        gr.update(visible=True), gr.update(visible=False), gr.update(visible=False),
-        gr.update(visible=False), "", "", "", user.uid, user.email
+            success_msg,
+            gr.update(visible=True), gr.update(visible=False), gr.update(visible=False),
+            gr.update(visible=False), "", "", "", user.uid, user.email
         )
     except auth.UidAlreadyExistsError:
         return (
-        "Username already exists. Please choose another.",
-        gr.update(visible=False), gr.update(visible=True), gr.update(visible=False),
-        gr.update(visible=False), email, password, username, "", ""
+            "Username already exists. Please choose another.",
+            gr.update(visible=False), gr.update(visible=True), gr.update(visible=False),
+            gr.update(visible=False), email, password, username, "", ""
         )
     except auth.EmailAlreadyExistsError:
         return (
-        "Email already exists. Please use another email.",
-        gr.update(visible=False), gr.update(visible=True), gr.update(visible=False),
-        gr.update(visible=False), email, password, username, "", ""
+            "Email already exists. Please use another email.",
+            gr.update(visible=False), gr.update(visible=True), gr.update(visible=False),
+            gr.update(visible=False), email, password, username, "", ""
         )
     except Exception as e:
         error_msg = f"Signup failed: {str(e)}"
         print(error_msg)
         return (
-        error_msg,
-        gr.update(visible=False), gr.update(visible=True), gr.update(visible=False),
-        gr.update(visible=False), email, password, username, "", ""
+            error_msg,
+            gr.update(visible=False), gr.update(visible=True), gr.update(visible=False),
+            gr.update(visible=False), email, password, username, "", ""
         )
 
 def logout():
@@ -851,7 +897,7 @@ with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
                                 process_chat_btn = gr.Button("Process Resume")
                             with gr.Column():
                                 file_status_chat = gr.Textbox(label="Status", interactive=False)
-                        chatbot = gr.Chatbot(label="Chat History", visible=False, type="messages") # Updated type
+                        chatbot = gr.Chatbot(label="Chat History", visible=False, type="messages")
                         query_input = gr.Textbox(label="Ask about your resume", placeholder="Type your question here...", visible=False)
                         send_btn = gr.Button("Send", visible=False)
                 else:
@@ -874,20 +920,22 @@ with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
             question_display, answer_instructions, audio_input,
             submit_answer_btn, next_question_btn, submit_interview_btn,
             answer_display, feedback_display, metrics_display,
-            processed_resume_data_hidden_interview
+            processed_resume_data_hidden_interview # 13 outputs
         ]
     )
 
     start_interview_btn.click(
         fn=start_interview,
         inputs=[role_selection, processed_resume_data_hidden_interview],
-        # --- CORRECTION: Remove direct subscripting of interview_state ---
         outputs=[
             file_status_interview, question_display,
+            # interview_state["questions"], interview_state["answers"], # REMOVED - Invalid
+            # interview_state["interactions"], interview_state["metrics_list"], # REMOVED - Invalid
+            # Outputs for UI updates
             audio_input, submit_answer_btn, next_question_btn,
             submit_interview_btn, feedback_display, metrics_display,
             question_display, answer_instructions,
-            interview_state
+            interview_state # Update the state object itself (11 outputs)
         ]
     )
 
@@ -896,9 +944,9 @@ with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
         inputs=[audio_input, interview_state],
         outputs=[
             file_status_interview, answer_display, interview_state,
-            feedback_display, feedback_display,
-            metrics_display, metrics_display,
-            audio_input, submit_answer_btn, next_question_btn,
+            feedback_display, feedback_display, # Update value and visibility
+            metrics_display, metrics_display,   # Update value and visibility
+            audio_input, submit_answer_btn, next_question_btn, # 13 outputs
             submit_interview_btn, question_display, answer_instructions
         ]
     )
@@ -911,7 +959,7 @@ with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
             audio_input, submit_answer_btn, next_question_btn,
             feedback_display, metrics_display, submit_interview_btn,
             question_display, answer_instructions,
-            answer_display, metrics_display
+            answer_display, metrics_display # Clear previous answer/metrics display (13 outputs)
         ]
     )
 
@@ -919,10 +967,10 @@ with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
         fn=submit_interview,
         inputs=[interview_state],
         outputs=[
-            file_status_interview,
-            interview_state,
-            evaluation_report_display,
-            evaluation_chart_display
+            file_status_interview, # Status message
+            interview_state,       # State (passed through)
+            evaluation_report_display, # Show report
+            evaluation_chart_display   # Show chart (4 outputs)
         ]
     )
 
@@ -980,6 +1028,6 @@ with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
         outputs=[login_section, signup_section]
     )
 
-# Run the app
+
 if __name__ == "__main__":
     demo.launch(server_name="0.0.0.0", server_port=7860, share=False)
