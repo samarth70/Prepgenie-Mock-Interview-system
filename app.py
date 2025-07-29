@@ -404,68 +404,99 @@ def generate_evaluation_report(metrics_data, average_rating, feedback_list, inte
 
 # --- Gradio UI Components and Logic (Interview) ---
 
+
 def process_resume(file_obj):
     """Handles resume upload and processing."""
+    print(f"process_resume called with: {file_obj}") # Debug print
     if not file_obj:
-        # Return exactly 13 values
+        # Return exactly 13 values to match the outputs list
+        # [file_status_interview, role_selection, start_interview_btn,
+        #  question_display, answer_instructions, audio_input,
+        #  submit_answer_btn, next_question_btn, submit_interview_btn,
+        #  answer_display, feedback_display, metrics_display,
+        #  processed_resume_data_hidden_interview]
+        print("No file uploaded.")
         return (
-            "Please upload a PDF resume.",
-            gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=False), gr.update(visible=False)
-            # 13 values total (no extra processed_data at the end)
+            "Please upload a PDF resume.",  # file_status_interview
+            gr.update(visible=False),       # role_selection
+            gr.update(visible=False),       # start_interview_btn
+            gr.update(visible=False),       # question_display
+            gr.update(visible=False),       # answer_instructions
+            gr.update(visible=False),       # audio_input
+            gr.update(visible=False),       # submit_answer_btn
+            gr.update(visible=False),       # next_question_btn
+            gr.update(visible=False),       # submit_interview_btn
+            gr.update(visible=False),       # answer_display
+            gr.update(visible=False),       # feedback_display
+            gr.update(visible=False),       # metrics_display
+            gr.update(visible=False)        # processed_resume_data_hidden_interview
+            # Total: 13 values
         )
 
     try:
+        # --- Correctly handle the file path from Gradio ---
         if hasattr(file_obj, 'name'):
             file_path = file_obj.name
         else:
+            # Fallback if it's somehow a direct path string (less likely)
             file_path = str(file_obj)
+        print(f"File path to process: {file_path}")
 
-        raw_text = file_processing(file_path)
+        # --- Process the PDF ---
+        raw_text = file_processing(file_path) # Use the path
+        print(f"Raw text extracted (length: {len(raw_text) if raw_text else 0})")
         if not raw_text or not raw_text.strip():
-            # Return exactly 13 values on error
-            return (
-                "Could not extract text from the PDF.",
-                gr.update(visible=False), gr.update(visible=False),
-                gr.update(visible=False), gr.update(visible=False),
-                gr.update(visible=False), gr.update(visible=False),
-                gr.update(visible=False), gr.update(visible=False),
-                gr.update(visible=False), gr.update(visible=False),
-                gr.update(visible=False), gr.update(visible=False)
-                # 13 values total
-            )
+             print("Failed to extract text or text is empty.")
+             return (
+                "Could not extract text from the PDF.", # file_status_interview
+                gr.update(visible=False), gr.update(visible=False), # role_selection, start_interview_btn
+                gr.update(visible=False), gr.update(visible=False), # question_display, answer_instructions
+                gr.update(visible=False), gr.update(visible=False), # audio_input, submit_answer_btn
+                gr.update(visible=False), gr.update(visible=False), # next_question_btn, submit_interview_btn
+                gr.update(visible=False), gr.update(visible=False), # answer_display, feedback_display
+                gr.update(visible=False), gr.update(visible=False)  # metrics_display, processed_resume_data_hidden_interview
+                # Total: 13 values
+             )
 
-        processed_data = getallinfo(raw_text)
-        # Return exactly 13 values on success
-        # The last output component is processed_resume_data_hidden_interview
+        # --- Format the resume data ---
+        processed_data = getallinfo(raw_text) # Use the new model instance if corrected
+        print(f"Resume processed (length: {len(processed_data) if processed_data else 0})")
+
+        # --- Return success state and values ---
+        # Make sure to return the processed_data as the LAST value
         return (
-            f"File processed successfully!",
-            gr.update(visible=True), gr.update(visible=True), # Role, Start Btn
-            gr.update(visible=False), gr.update(visible=False), # Q Display, A Instructions
-            gr.update(visible=False), gr.update(visible=False), # Audio, Submit Ans
-            gr.update(visible=False), gr.update(visible=False), # Next Q, Submit Int
-            gr.update(visible=False), gr.update(visible=False), # Answer, Feedback
-            processed_data # This goes to the 13th output component
-            # 13 values total
+            f"File processed successfully!", # file_status_interview
+            gr.update(visible=True),         # role_selection (make visible)
+            gr.update(visible=True),         # start_interview_btn (make visible)
+            gr.update(visible=False),        # question_display (initially hidden)
+            gr.update(visible=False),        # answer_instructions (initially hidden)
+            gr.update(visible=False),        # audio_input (initially hidden)
+            gr.update(visible=False),        # submit_answer_btn (initially hidden)
+            gr.update(visible=False),        # next_question_btn (initially hidden)
+            gr.update(visible=False),        # submit_interview_btn (initially hidden)
+            gr.update(visible=False),        # answer_display (initially hidden)
+            gr.update(visible=False),        # feedback_display (initially hidden)
+            gr.update(visible=False),        # metrics_display (initially hidden)
+            processed_data                   # processed_resume_data_hidden_interview (pass the data!)
+            # Total: 13 values
         )
     except Exception as e:
         error_msg = f"Error processing file: {str(e)}"
-        print(error_msg)
+        print(f"Exception in process_resume: {error_msg}")
+        import traceback
+        traceback.print_exc() # Print full traceback for debugging
         # Ensure exactly 13 values are returned even on error
         return (
-            error_msg,
-            gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=False), gr.update(visible=False),
-            gr.update(visible=False), gr.update(visible=False)
-            # 13 values total
+            error_msg,                      # file_status_interview
+            gr.update(visible=False), gr.update(visible=False), # role_selection, start_interview_btn
+            gr.update(visible=False), gr.update(visible=False), # question_display, answer_instructions
+            gr.update(visible=False), gr.update(visible=False), # audio_input, submit_answer_btn
+            gr.update(visible=False), gr.update(visible=False), # next_question_btn, submit_interview_btn
+            gr.update(visible=False), gr.update(visible=False), # answer_display, feedback_display
+            gr.update(visible=False), gr.update(visible=False)  # metrics_display, processed_resume_data_hidden_interview
+            # Total: 13 values
         )
+
 
 def start_interview(roles, processed_resume_data):
     """Starts the interview process."""
