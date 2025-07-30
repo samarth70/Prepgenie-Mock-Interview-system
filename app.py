@@ -960,6 +960,10 @@ except ImportError as e:
 
 
 with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
+    interview_state = gr.State({}) # This defines the interview_state variable
+    user_state = gr.State("")
+    user_email_state = gr.State("")
+    processed_resume_data_state = gr.State("")
     # --- Header Section ---
     with gr.Row():
         # Display the logo/image on the left
