@@ -958,22 +958,27 @@ except ImportError as e:
 # --- Gradio Interface ---
 
 
+
 with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
     # --- Header Section ---
     with gr.Row():
         # Display the logo/image on the left
-        gr.Image("prep_genie_logo.png", label=None, show_label=False).style(height=50, width=50)
-        
+        # --- CORRECTION: Pass height and width directly to gr.Image ---
+        # Ensure "prep_genie_logo.png" exists in the directory where you run the script
+        # Or provide the full relative path, e.g., "assets/prep_genie_logo.png"
+        gr.Image("prep_genie_logo.png", label=None, show_label=False, height=50, width=50, interactive=False)
+        # --- END OF CORRECTION ---
+
         # Display the title on the right
+        # --- Slightly adjusted Markdown for better alignment ---
         gr.Markdown(
             """
-            <h1 style="display: flex; align-items: center;">
-                <span style="margin-left: 10px;">PrepGenie</span>
+            <h1 style="display: flex; align-items: center; margin-left: 10px;">
+                PrepGenie
             </h1>
             """,
             elem_id="title"
         )
-
     # --- Login Section ---
     with gr.Column(visible=True) as login_section:
         gr.Markdown("## Login")
