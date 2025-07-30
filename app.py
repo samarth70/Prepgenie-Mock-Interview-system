@@ -102,25 +102,51 @@ def getallinfo(data):
         print(f"Error in getallinfo: {e}") # This should now be clearer
         return "Error processing resume data."
 
-def file_processing(pdf_file_path):
-    """Processes the uploaded PDF file given its path."""
-    if not pdf_file_path:
-        return ""
-    try:
-        if hasattr(pdf_file_path, 'name'):
-            file_path_to_use = pdf_file_path.name
-        else:
-            file_path_to_use = pdf_file_path
 
-        with open(file_path_to_use, "rb") as f:
+def file_processing(pdf_file_obj): # Use a descriptive name for the parameter
+    """Processes the uploaded PDF file."""
+    # Check if the input is None or falsy
+    if not pdf_file_obj:
+        print("No file object provided to file_processing.")
+        return ""
+
+    try:
+        # --- Key Fix: Extract the file path correctly ---
+        # Gradio File component usually provides an object with a 'name' attribute
+        # containing the path to the temporary file.
+        if hasattr(pdf_file_obj, 'name'):
+            # This is the standard and recommended way for Gradio File uploads
+            file_path = pdf_file_obj.name
+        else:
+            # Fallback: If it's already a string path (less common in recent Gradio)
+            # or if the structure is different, try using it directly.
+            # Converting to string is a safe fallback.
+            file_path = str(pdf_file_obj)
+            print(f"File object does not have 'name' attribute. Using str(): {file_path}")
+
+        print(f"Attempting to process file at path: {file_path}")
+
+        # --- Use the file path with PyPDF2 ---
+        # Open the file using the resolved path string in binary read mode
+        with open(file_path, "rb") as f:
             reader = PyPDF2.PdfReader(f)
             text = ""
             for page in reader.pages:
                 text += page.extract_text()
         return text
-    except Exception as e:
-        print(f"Error processing PDF {pdf_file_path}: {e}")
+    except FileNotFoundError:
+        error_msg = f"File not found at path: {file_path}"
+        print(error_msg)
         return ""
+    except PyPDF2.errors.PdfReadError as e:
+        error_msg = f"Error reading PDF file {file_path}: {e}"
+        print(error_msg)
+        return ""
+    except Exception as e: # Catch other potential errors during file handling or processing
+        error_msg = f"Unexpected error processing PDF from object {pdf_file_obj}: {e}"
+        print(error_msg)
+        return ""
+
 
 def get_embedding(text):
     if not text or not text.strip():
