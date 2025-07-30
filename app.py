@@ -1083,19 +1083,25 @@ with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
             processed_resume_data_hidden_interview # 13 outputs
         ]
     )
-
     start_interview_btn.click(
         fn=start_interview,
         inputs=[role_selection, processed_resume_data_hidden_interview],
+        # --- CORRECTION: Ensure the outputs list only contains component objects or gr.Updates ---
         outputs=[
-            file_status_interview, question_display,
-            # interview_state["questions"], interview_state["answers"], # REMOVED - Invalid
-            # interview_state["interactions"], interview_state["metrics_list"], # REMOVED - Invalid
-            # Outputs for UI updates
-            audio_input, submit_answer_btn, next_question_btn,
-            submit_interview_btn, feedback_display, metrics_display,
-            question_display, answer_instructions,
-            interview_state # Update the state object itself (11 outputs)
+            file_status_interview,      # 1
+            question_display,           # 2
+            # The function `start_interview` returns values to update these UI components
+            audio_input,                # 3
+            submit_answer_btn,          # 4
+            next_question_btn,          # 5
+            submit_interview_btn,       # 6
+            feedback_display,           # 7
+            metrics_display,            # 8
+            question_display,           # 9 (duplicate reference, likely not needed, but kept if intended)
+            answer_instructions,        # 10
+            # The *last* output corresponds to the `interview_state` Gradio State object.
+            # The function `start_interview` returns a dictionary that will update this State object.
+            interview_state             # 11 - Reference the State object itself
         ]
     )
 
