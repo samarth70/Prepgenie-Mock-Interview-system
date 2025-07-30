@@ -9,25 +9,23 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-# Configure Generative AI
+# Configure Generative AI (Ensure model name is correct)
+# Note: 'gemini-2.5-flash' might need verification. Common ones are 'gemini-1.5-flash', 'gemini-pro'.
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-text_model = genai.GenerativeModel("gemini-2.5-flash")
+text_model = genai.GenerativeModel("gemini-2.5-flash") # Potentially incorrect model name
+# text_model = genai.GenerativeModel("gemini-1.5-flash") # Using a known model name
+# print("Using Generative AI model for chat: gemini-1.5-flash")
 
 
-def file_processing_chat(pdf_file_obj): # Take the Gradio file object
-    """Processes the uploaded PDF file for the chat module."""
-    if not pdf_file_obj:
-        print("No file object provided to file_processing_chat.")
+def file_processing_chat(pdf_file_path_string): # Expect the file path string directly
+    """Processes the uploaded PDF file given its path."""
+    if not pdf_file_path_string:
+        print("No file path provided to file_processing_chat.")
         return ""
 
     try:
-        # --- Key Fix: Extract the file path correctly ---
-        if hasattr(pdf_file_obj, 'name'):
-            file_path = pdf_file_obj.name
-        else:
-            file_path = str(pdf_file_obj)
-            print(f"File object does not have 'name' attribute. Using str(): {file_path}")
-
+        # Ensure the input is treated as a string path
+        file_path = str(pdf_file_path_string)
         print(f"Attempting to process file at path: {file_path}")
 
         # --- Use the file path with PyPDF2 ---
@@ -46,9 +44,10 @@ def file_processing_chat(pdf_file_obj): # Take the Gradio file object
         print(error_msg)
         return ""
     except Exception as e:
-        error_msg = f"Unexpected error processing PDF from object {pdf_file_obj}: {e}"
+        error_msg = f"Unexpected error processing PDF from path {pdf_file_path_string}: {e}"
         print(error_msg)
         return ""
+
 
 def getallinfo_chat(data):
     """Formats resume data."""
@@ -59,12 +58,14 @@ def getallinfo_chat(data):
             education, skills of the user like in a resume. If the details are not provided return: not a resume.
             If details are provided then please try again and format the whole in a single paragraph covering all the information. """
     try:
+        # Use the correct model instance
         response = text_model.generate_content(text)
         response.resolve()
         return response.text
     except Exception as e:
         print(f"Error formatting resume data: {e}")
         return "Error processing resume data."
+
 
 def get_answer(question, input_text):
     """Generates answer/suggestions based on the question and resume text."""
@@ -80,6 +81,7 @@ def get_answer(question, input_text):
             it should be less and precise. dont tell the user to change the whole resume. just give them some suggestions. dont give
             bullet points. Be point to point with user."""
     try:
+        # Use the correct model instance
         response = text_model.generate_content(text)
         response.resolve()
         return response.text
@@ -87,68 +89,98 @@ def get_answer(question, input_text):
         print(f"Error generating answer: {e}")
         return "Sorry, I couldn't generate an answer at the moment."
 
+
 # --- Gradio Chat Interface Functions ---
 
 def process_resume_chat(file_obj):
     """Handles resume upload and initial processing for chat."""
+    print(f"process_resume_chat called with: {file_obj}") # Debug print
     if not file_obj:
-        return "Please upload a PDF resume.", "", gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
+        print("No file uploaded in process_resume_chat.")
+        return (
+            "Please upload a PDF resume.",
+            "",
+            gr.update(visible=False),
+            gr.update(visible=False),
+            gr.update(visible=False)
+        )
 
     try:
-        # Save uploaded file to a temporary location
-        temp_dir = tempfile.mkdtemp()
-        file_path = os.path.join(temp_dir, file_obj.name)
-        with open(file_path, "wb") as f:
-            f.write(file_obj.read())
+        # --- Correctly handle the file path from Gradio ---
+        # Determine the correct file path from the Gradio object
+        if hasattr(file_obj, 'name'):
+            # This is the standard way for Gradio File uploads
+            uploaded_file_path = file_obj.name
+            print(f"Using Gradio-provided file path: {uploaded_file_path}")
+        else:
+            # Fallback: If it's already a string path (less common) or different structure
+            uploaded_file_path = str(file_obj)
+            print(f"File object does not have 'name' attribute. Using str(): {uploaded_file_path}")
 
-        # Process the PDF
-        raw_text = file_processing_chat(file_path)
-        if not raw_text.strip():
-             os.remove(file_path)
-             os.rmdir(temp_dir)
-             return "Could not extract text from the PDF.", "", gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
+        # --- Process the PDF directly from the uploaded file path ---
+        # No need to save it again, we can use the path Gradio provided
+        raw_text = file_processing_chat(uploaded_file_path) # Pass the path string
+        print(f"Raw text extracted (length: {len(raw_text) if raw_text else 0})")
 
-        processed_data = getallinfo_chat(raw_text)
+        if not raw_text or not raw_text.strip():
+            print("Failed to extract text or text is empty in process_resume_chat.")
+            return (
+                "Could not extract text from the PDF.",
+                "",
+                gr.update(visible=False),
+                gr.update(visible=False),
+                gr.update(visible=False)
+            )
 
-        # Clean up temporary file
-        os.remove(file_path)
-        os.rmdir(temp_dir)
+        # --- Format the resume data ---
+        processed_data = getallinfo_chat(raw_text) # Use the new model instance if corrected
+        print(f"Resume processed for chat (length: {len(processed_data) if processed_data else 0})")
 
+        # --- Return success state and values ---
         return (
             f"Resume processed successfully!",
-            processed_data, # Pass processed data for chat
-            gr.update(visible=True), # Show chat input
-            gr.update(visible=True), # Show send button
-            [] # Clear previous chat history (return empty list for Chatbot)
+            processed_data,              # Pass processed data for chat
+            gr.update(visible=True),     # Show chat input
+            gr.update(visible=True),     # Show send button
+            []                           # Clear/initialize chat history
         )
     except Exception as e:
         error_msg = f"Error processing file: {str(e)}"
-        print(error_msg)
-        return error_msg, "", gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
+        print(f"Exception in process_resume_chat: {error_msg}")
+        import traceback
+        traceback.print_exc() # Print full traceback for debugging
+        return (
+            error_msg,
+            "",
+            gr.update(visible=False),
+            gr.update(visible=False),
+            gr.update(visible=False)
+        )
+
 
 def chat_with_resume(query, resume_data, history):
     """Handles the chat interaction."""
     # history is automatically managed by Gradio Chatbot, we just need to append to it
+    # Gradio Chatbot expects a list of tuples [(user_msg, bot_response), ...]
+    # If history is None, initialize as empty list
+    current_history = history if history is not None else []
+
     if not query or not query.strip() or not resume_data or not resume_data.strip():
-        # Return existing history if inputs are missing or empty
-        # Gradio Chatbot expects a list of tuples [(user_msg, bot_response), ...]
-        # If history is None, initialize as empty list
-        current_history = history if history is not None else []
-        # Add the error message to the chat history
+        # Add an error message to the chat history if inputs are missing or empty
         current_history.append((query if query else "", "Please enter a question and ensure your resume is processed."))
         return "", current_history # Clear input, update history
 
     try:
         answer = get_answer(query, resume_data)
-        # Update history
-        # Gradio Chatbot expects a list of tuples [(user_msg, bot_response), ...]
-        current_history = history if history is not None else []
+        # Append the valid Q&A to the history
         current_history.append((query, answer))
         return "", current_history # Clear input, update history
     except Exception as e:
         error_msg = f"Error during chat: {str(e)}"
         print(error_msg)
-        current_history = history if history is not None else []
         current_history.append((query, error_msg))
         return "", current_history
 
+
+# Print statement to confirm module load (optional)
+print("Chat module loaded successfully.")
