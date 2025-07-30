@@ -956,12 +956,23 @@ except ImportError as e:
     chat_module = None
 
 # --- Gradio Interface ---
+
+
 with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
-    gr.Markdown("# 🦈 PrepGenie")
-    interview_state = gr.State({})
-    user_state = gr.State("")
-    user_email_state = gr.State("")
-    processed_resume_data_state = gr.State("")
+    # --- Header Section ---
+    with gr.Row():
+        # Display the logo/image on the left
+        gr.Image("prep_genie_logo.png", label=None, show_label=False).style(height=50, width=50)
+        
+        # Display the title on the right
+        gr.Markdown(
+            """
+            <h1 style="display: flex; align-items: center;">
+                <span style="margin-left: 10px;">PrepGenie</span>
+            </h1>
+            """,
+            elem_id="title"
+        )
 
     # --- Login Section ---
     with gr.Column(visible=True) as login_section:
@@ -1053,6 +1064,7 @@ with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
         interview_btn.click(fn=navigate_to_interview, inputs=None, outputs=[interview_view, chat_view])
         if CHAT_MODULE_AVAILABLE:
             chat_btn.click(fn=navigate_to_chat, inputs=None, outputs=[interview_view, chat_view])
+
 
     # --- Event Listeners for Interview ---
     process_btn_interview.click(
