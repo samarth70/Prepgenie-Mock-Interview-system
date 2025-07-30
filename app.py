@@ -966,13 +966,6 @@ with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
     processed_resume_data_state = gr.State("")
     # --- Header Section ---
     with gr.Row():
-        # Display the logo/image on the left
-        # --- CORRECTION: Pass height and width directly to gr.Image ---
-        # Ensure "prep_genie_logo.png" exists in the directory where you run the script
-        # Or provide the full relative path, e.g., "assets/prep_genie_logo.png"
-        gr.Image("prep_genie_logo.png", label=None, show_label=False, height=50, width=50, interactive=False)
-        # --- END OF CORRECTION ---
-
         # Display the title on the right
         # --- Slightly adjusted Markdown for better alignment ---
         gr.Markdown(
@@ -1205,4 +1198,7 @@ with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
 
 
 if __name__ == "__main__":
-    demo.launch(server_name="0.0.0.0", server_port=7860, share=False)
+    demo.launch(server_name="0.0.0.0",
+                # server_port=7860,
+                # share=False
+               )
