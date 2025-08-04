@@ -18,7 +18,7 @@ import re
 import firebase_admin
 from firebase_admin import credentials, auth
 
-# Load environment variables
+
 load_dotenv()
 
 # --- Robust Firebase Initialization ---
@@ -66,14 +66,10 @@ def initialize_firebase():
 FIREBASE_APP = initialize_firebase()
 FIREBASE_AVAILABLE = FIREBASE_APP is not None
 
-# --- Configure Generative AI (CHANGED MODEL) ---
-# Replace 'gemini-pro' with 'gemini-flash-2.5'
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY") or "YOUR_DEFAULT_API_KEY_HERE")
-# text_model = genai.GenerativeModel("gemini-pro") # OLD
 text_model = genai.GenerativeModel("gemini-1.5-flash") # NEW - Use the correct model name
 print("Using Generative AI model: gemini-1.5-flash")
 
-# Load BERT model and tokenizer
 try:
     model = TFBertModel.from_pretrained("bert-base-uncased")
     tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
@@ -84,7 +80,6 @@ except Exception as e:
     model = None
     tokenizer = None
 
-# --- Helper Functions (Logic adapted from Streamlit) ---
 
 def getallinfo(data):
     if not data or not data.strip():
@@ -111,16 +106,12 @@ def file_processing(pdf_file_obj): # Use a descriptive name for the parameter
         return ""
 
     try:
-        # --- Key Fix: Extract the file path correctly ---
         # Gradio File component usually provides an object with a 'name' attribute
         # containing the path to the temporary file.
         if hasattr(pdf_file_obj, 'name'):
             # This is the standard and recommended way for Gradio File uploads
             file_path = pdf_file_obj.name
         else:
-            # Fallback: If it's already a string path (less common in recent Gradio)
-            # or if the structure is different, try using it directly.
-            # Converting to string is a safe fallback.
             file_path = str(pdf_file_obj)
             print(f"File object does not have 'name' attribute. Using str(): {file_path}")
 
@@ -306,8 +297,6 @@ def generate_metrics(data, answer, question):
         }
     return metrics
 
-# --- Evaluation Logic (Adapted from login_module/evaluate.py) ---
-
 def getmetrics(interaction, resume):
     interaction_text = "\n".join([f"{q}: {a}" for q, a in interaction.items()])
     text = f"""This is the user's resume: {resume}.
@@ -324,7 +313,6 @@ def getmetrics(interaction, resume):
     Adaptability and resilience: B
     """
     try:
-        # Use the correct model instance
         response = text_model.generate_content(text)
         response.resolve()
         return response.text
@@ -427,9 +415,6 @@ def generate_evaluation_report(metrics_data, average_rating, feedback_list, inte
         error_msg = f"Error generating evaluation report: {e}"
         print(error_msg)
         return error_msg
-
-# --- Gradio UI Components and Logic (Interview) ---
-
 
 def process_resume(file_obj):
     """Handles resume upload and processing."""
@@ -959,7 +944,7 @@ except ImportError as e:
 
 
 
-with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
+with gr.Blocks(title="PrepGenie - Mock Interviewer") as demo:
     interview_state = gr.State({}) # This defines the interview_state variable
     user_state = gr.State("")
     user_email_state = gr.State("")
@@ -970,8 +955,8 @@ with gr.Blocks(title="PrepGenie - Mock Interview") as demo:
         # --- Slightly adjusted Markdown for better alignment ---
         gr.Markdown(
             """
-            <h1 style="display: flex; align-items: center; margin-left: 10px;">
-                PrepGenie
+            <h1 style="display: flex; justify-content: center; align-items: center;">
+                PrepGenie- Interview Preparation App
             </h1>
             """,
             elem_id="title"
