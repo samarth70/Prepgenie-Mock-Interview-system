@@ -1,32 +1,19 @@
-# PrepGenie_Gradio/interview_history.py
-
+# PrepGenie/interview_history.py
 import firebase_admin
-from firebase_admin import credentials, firestore
-import json
+from firebase_admin import firestore
 import datetime
+import json
 
-# --- Initialize Firestore ---
-# Ensure Firebase Admin is initialized (check if already done in auth.py)
-# It's generally good practice to initialize once in your main app entry point.
-# If auth.py already initializes it, you can remove the initialization block below.
-# Otherwise, uncomment and adjust the path.
-if not firebase_admin._apps:
-    try:
-        # Make sure the path to your service account key is correct
-        cred = credentials.Certificate("prepgenie-64134-firebase-adminsdk-fbsvc-3370ac4ab9.json") # Update path if needed
-        firebase_admin.initialize_app(cred)
-        print("Firebase (for history) initialized successfully.")
-    except Exception as e:
-        print(f"Error initializing Firebase for history: {e}")
-        # Handle error appropriately
-
-# Get a Firestore client instance
+# --- Firestore Client ---
+# Assumes Firebase Admin is initialized in app.py
 try:
     db = firestore.client()
-    print("Firestore client initialized for history.")
+    print("Firestore client for history initialized successfully.")
+    FIRESTORE_AVAILABLE = True
 except Exception as e:
-    print(f"Error getting Firestore client for history: {e}")
+    print(f"Error initializing Firestore client for history: {e}")
     db = None
+    FIRESTORE_AVAILABLE = False
 
 def save_interview_history(user_id, interview_data):
     """
@@ -43,13 +30,18 @@ def save_interview_history(user_id, interview_data):
                 "questions": list,
                 "answers": list,
                 "feedback": list,
-                "summary": str (optional, overall summary if generated)
+                "interactions": dict,
+                "metrics_list": list,
+                "final_metrics": dict,
+                "average_rating": float,
+                "evaluation_report": str,
+                # ... other relevant data ...
             }
 
     Returns:
         bool: True if successful, False otherwise.
     """
-    if not db:
+    if not FIRESTORE_AVAILABLE or not db:
         print("Firestore client not available. Cannot save history.")
         return False
     if not user_id:
@@ -59,17 +51,13 @@ def save_interview_history(user_id, interview_data):
     try:
         # Reference to the user's document in the 'users' collection
         user_ref = db.collection('users').document(user_id)
-        
-        # Ensure the user document exists (optional, Firestore can create it)
-        # user_ref.set({}, merge=True) # Create empty doc if it doesn't exist
-        
+
         # Add the interview data to a subcollection 'interview_history'
         history_ref = user_ref.collection('interview_history')
-        
+
         # Add the data with an auto-generated ID
-        # interview_data should already contain a timestamp
         history_ref.add(interview_data)
-        
+
         print(f"Interview history saved for user {user_id}")
         return True
     except Exception as e:
@@ -88,7 +76,7 @@ def load_interview_history(user_id, limit=5):
         list: A list of dictionaries, each representing an interview record.
               Returns an empty list if no history is found or on error.
     """
-    if not db:
+    if not FIRESTORE_AVAILABLE or not db:
         print("Firestore client not available. Cannot load history.")
         return []
     if not user_id:
@@ -98,10 +86,10 @@ def load_interview_history(user_id, limit=5):
     try:
         # Reference to the user's interview history subcollection
         history_ref = db.collection('users').document(user_id).collection('interview_history')
-        
+
         # Query the history, ordered by timestamp descending (most recent first), limited
         docs = history_ref.order_by('timestamp', direction=firestore.Query.DESCENDING).limit(limit).stream()
-        
+
         history_list = []
         for doc in docs:
             # Convert Firestore document to dictionary
@@ -109,7 +97,7 @@ def load_interview_history(user_id, limit=5):
             # Add the document ID if needed (optional)
             # interview_record['doc_id'] = doc.id
             history_list.append(interview_record)
-            
+
         print(f"Loaded {len(history_list)} interview records for user {user_id}")
         return history_list
     except Exception as e:
@@ -126,7 +114,7 @@ def load_interview_history(user_id, limit=5):
 #     "questions": ["Question 1?", "Question 2?"],
 #     "answers": ["Answer 1", "Answer 2"],
 #     "feedback": ["Feedback 1", "Feedback 2"],
-#     "summary": "Overall interview summary..."
+#     # ... other fields ...
 # }
 # save_interview_history(user_uid, interview_summary_data)
 
