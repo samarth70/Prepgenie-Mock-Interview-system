@@ -19,7 +19,6 @@ print("Using Generative AI model: gemini-1.5-flash")
 # --- Import Logic Modules ---
 import interview_logic
 import interview_history
-# import chat_logic # If chat logic is moved
 
 # --- Helper Functions for UI Updates ---
 def apply_ui_updates(updates_dict):
@@ -31,18 +30,14 @@ def apply_ui_updates(updates_dict):
         elif instruction == "gr_show":
             gr_updates[component_name] = gr.update(visible=True)
         elif instruction == "gr_show_and_update":
-             # This needs specific handling in the calling function
-             # Placeholder, logic should set value in calling function
              gr_updates[component_name] = gr.update(visible=True)
         elif instruction == "gr_show_and_update_error":
              gr_updates[component_name] = gr.update(visible=True)
         elif instruction == "gr_clear":
-             gr_updates[component_name] = "" # For textboxes
+             gr_updates[component_name] = "" 
         elif instruction == "gr_clear_dict":
-             gr_updates[component_name] = {} # For JSON
-        # Add more instructions as needed
+             gr_updates[component_name] = {} 
         else:
-            # Default or pass through
             gr_updates[component_name] = gr.update()
     return gr_updates
 
@@ -56,12 +51,10 @@ def navigate_to_chat():
 def navigate_to_history():
     return (gr.update(visible=False), gr.update(visible=False), gr.update(visible=True))
 
-# --- Event Handler Functions (Orchestrators) ---
+# --- Event Handler Functions ---
 def process_resume_handler(file_obj):
-    """Handles resume processing event."""
     result = interview_logic.process_resume_logic(file_obj)
     ui_updates = apply_ui_updates(result["ui_updates"])
-    # Unpack ui_updates in the correct order for outputs
     return (
         result["status"],
         ui_updates.get("role_selection", gr.update()),
@@ -75,12 +68,10 @@ def process_resume_handler(file_obj):
         ui_updates.get("answer_display", gr.update()),
         ui_updates.get("feedback_display", gr.update()),
         ui_updates.get("metrics_display", gr.update()),
-        result["processed_data"] # Pass processed data
+        result["processed_data"]
     )
 
 def start_interview_handler(roles, processed_resume_data):
-    """Handles interview start event."""
-    # First, format the resume data using the AI model
     formatted_resume_data = interview_logic.getallinfo(processed_resume_data, TEXT_MODEL)
     result = interview_logic.start_interview_logic(roles, formatted_resume_data, TEXT_MODEL)
     ui_updates = apply_ui_updates(result["ui_updates"])
@@ -99,10 +90,8 @@ def start_interview_handler(roles, processed_resume_data):
     )
 
 def submit_answer_handler(audio, interview_state):
-    """Handles answer submission event."""
     result = interview_logic.submit_answer_logic(audio, interview_state, TEXT_MODEL)
     ui_updates = apply_ui_updates(result["ui_updates"])
-    # Handle special updates for feedback and metrics that need value setting
     feedback_update = ui_updates.get("feedback_display", gr.update())
     if "gr_show_and_update" in result["ui_updates"].values():
         feedback_update = gr.update(visible=True, value=result["feedback_text"])
@@ -125,7 +114,6 @@ def submit_answer_handler(audio, interview_state):
     )
 
 def next_question_handler(interview_state):
-    """Handles next question event."""
     result = interview_logic.next_question_logic(interview_state)
     ui_updates = apply_ui_updates(result["ui_updates"])
     return (
@@ -140,31 +128,29 @@ def next_question_handler(interview_state):
         ui_updates.get("submit_interview_btn", gr.update()),
         ui_updates.get("question_display", gr.update()),
         ui_updates.get("answer_instructions", gr.update()),
-        ui_updates.get("answer_display", ""), # Clear
-        ui_updates.get("metrics_display_clear", {}) # Clear
+        ui_updates.get("answer_display", ""), 
+        ui_updates.get("metrics_display_clear", {}) 
     )
 
 def submit_interview_handler(interview_state):
-    """Handles interview submission event."""
     result = interview_logic.submit_interview_logic(interview_state, TEXT_MODEL)
     ui_updates = apply_ui_updates(result["ui_updates"])
 
-    # Handle special updates for report and chart that need value setting
     report_update = ui_updates.get("evaluation_report_display", gr.update())
     if "gr_show_and_update" in result["ui_updates"].values():
         report_update = gr.update(visible=True, value=result["report_text"])
     elif "gr_show_and_update_error" in result["ui_updates"].values():
-         report_update = gr.update(visible=True, value=result["report_text"]) # Show error
+         report_update = gr.update(visible=True, value=result["report_text"])
 
     chart_update = ui_updates.get("evaluation_chart_display", gr.update())
     if "gr_show_and_update" in result["ui_updates"].values():
         chart_update = gr.update(visible=True, value=result["chart_buffer"])
     elif "gr_show_and_update_error" in result["ui_updates"].values():
-         chart_update = gr.update(visible=False) # Hide chart on error
+         chart_update = gr.update(visible=False)
 
     return (
         result["status"],
-        result["interview_state"], # Pass through
+        result["interview_state"], 
         report_update,
         chart_update
     )
@@ -181,15 +167,12 @@ except ImportError as e:
 
 # --- Gradio Interface ---
 with gr.Blocks(title="PrepGenie - Mock Interviewer") as demo:
-    # --- Remove user_state ---
+    # --- State Variables ---
     interview_state = gr.State({})
-    # Create a new state to hold interview history for this session
-    interview_history_state = gr.State([]) # List of past interviews for this session
-    
-    # Define the state variable that was causing the error 
+    interview_history_state = gr.State([]) 
     processed_resume_data_state = gr.State("")
 
-    # --- Header Section ---
+    # --- Header ---
     with gr.Row():
         gr.Markdown(
             """
@@ -200,72 +183,89 @@ with gr.Blocks(title="PrepGenie - Mock Interviewer") as demo:
             elem_id="title"
         )
 
-# --- Main App Sections ---
-with gr.Column(visible=False) as main_app:
-    with gr.Row():
-        with gr.Column(scale=1):
-             logout_btn = gr.Button("Logout")
-        # This column needs content indented inside it
-        with gr.Column(scale=4):
-            # --- Interview Section ---
-            with gr.Column(visible=False) as interview_selection:
-                gr.Markdown("## Mock Interview")
-                with gr.Row():
-                    with gr.Column():
-                        file_upload_interview = gr.File(label="Upload Resume (PDF)", file_types=[".pdf"])
-                        process_btn_interview = gr.Button("Process Resume")
-                    with gr.Column():
-                        file_status_interview = gr.Textbox(label="Status", interactive=False)
-                role_selection = gr.Dropdown(
-                    choices=["Data Scientist", "Software Engineer", "Product Manager", "Data Analyst", "Business Analyst"],
-                    multiselect=True, label="Select Job Role(s)", visible=False
-                )
-                start_interview_btn = gr.Button("Start Interview", visible=False)
-                question_display = gr.Textbox(label="Question", interactive=False, visible=False)
-                answer_instructions = gr.Markdown("Click 'Record Answer' and speak your response.", visible=False)
-                audio_input = gr.Audio(label="Record Answer", type="numpy", visible=False)
-                submit_answer_btn = gr.Button("Submit Answer", visible=False)
-                next_question_btn = gr.Button("Next Question", visible=False)
-                submit_interview_btn = gr.Button("Submit Interview", visible=False, variant="primary")
-                answer_display = gr.Textbox(label="Your Answer", interactive=False, visible=False)
-                feedback_display = gr.Textbox(label="Feedback", interactive=False, visible=False)
-                metrics_display = gr.JSON(label="Metrics", visible=False)
-                processed_resume_data_hidden_interview = gr.Textbox(visible=False)
-                # --- Evaluation Results Section ---
-                with gr.Column(visible=False) as evaluation_selection:
-                    gr.Markdown("## Interview Evaluation Results")
-                    evaluation_report_display = gr.Markdown(label="Your Evaluation Report", visible=False)
-                    evaluation_chart_display = gr.Image(label="Skills Breakdown", type="pil", visible=False)
+    # --- Main App ---
+    with gr.Column(visible=True) as main_app:
+        with gr.Row():
+            # --- Navigation Column (Left) ---
+            with gr.Column(scale=1):
+                mock_interview_btn = gr.Button("Mock Interview")
+                if CHAT_MODULE_AVAILABLE:
+                    chat_btn = gr.Button("Chat with Resume")
+                else:
+                    chat_btn = gr.Button("Chat with Resume (Unavailable)", interactive=False)
+                history_btn = gr.Button("My Interview History")
 
-            # --- Chat Section ---
-            if CHAT_MODULE_AVAILABLE:
-                with gr.Column(visible=False) as chat_selection:
-                    gr.Markdown("## Chat with Resume")
+            # --- Content Column (Right) ---
+            with gr.Column(scale=4):
+                # --- Interview Section ---
+                with gr.Column(visible=True) as interview_selection:
+                    gr.Markdown("## Mock Interview")
                     with gr.Row():
                         with gr.Column():
-                            file_upload_chat = gr.File(label="Upload Resume (PDF)", file_types=[".pdf"])
-                            process_chat_btn = gr.Button("Process Resume")
+                            file_upload_interview = gr.File(label="Upload Resume (PDF)", file_types=[".pdf"])
+                            process_btn_interview = gr.Button("Process Resume")
                         with gr.Column():
-                            file_status_chat = gr.Textbox(label="Status", interactive=False)
-                    chatbot = gr.Chatbot(label="Chat History", visible=False, type="messages")
-                    query_input = gr.Textbox(label="Ask about your resume", placeholder="Type your question here...", visible=False)
-                    send_btn = gr.Button("Send", visible=False)
-            else:
+                            file_status_interview = gr.Textbox(label="Status", interactive=False)
+                    role_selection = gr.Dropdown(
+                        choices=["Data Scientist", "Software Engineer", "Product Manager", "Data Analyst", "Business Analyst"],
+                        multiselect=True, label="Select Job Role(s)", visible=False
+                    )
+                    start_interview_btn = gr.Button("Start Interview", visible=False)
+                    question_display = gr.Textbox(label="Question", interactive=False, visible=False)
+                    answer_instructions = gr.Markdown("Click 'Record Answer' and speak your response.", visible=False)
+                    audio_input = gr.Audio(label="Record Answer", type="numpy", visible=False)
+                    submit_answer_btn = gr.Button("Submit Answer", visible=False)
+                    next_question_btn = gr.Button("Next Question", visible=False)
+                    submit_interview_btn = gr.Button("Submit Interview", visible=False, variant="primary")
+                    answer_display = gr.Textbox(label="Your Answer", interactive=False, visible=False)
+                    feedback_display = gr.Textbox(label="Feedback", interactive=False, visible=False)
+                    metrics_display = gr.JSON(label="Metrics", visible=False)
+                    processed_resume_data_hidden_interview = gr.Textbox(visible=False)
+                    with gr.Column(visible=False) as evaluation_selection:
+                        gr.Markdown("## Interview Evaluation Results")
+                        evaluation_report_display = gr.Markdown(label="Your Evaluation Report", visible=False)
+                        evaluation_chart_display = gr.Image(label="Skills Breakdown", type="pil", visible=False)
+
+                # --- Chat Section ---
                 with gr.Column(visible=False) as chat_selection:
-                    gr.Markdown("## Chat with Resume (Unavailable)")
-                    gr.Textbox(value="Chat module is not available.", interactive=False)
+                    if CHAT_MODULE_AVAILABLE:
+                        gr.Markdown("## Chat with Resume")
+                        with gr.Row():
+                            with gr.Column():
+                                file_upload_chat = gr.File(label="Upload Resume (PDF)", file_types=[".pdf"])
+                                process_chat_btn = gr.Button("Process Resume")
+                            with gr.Column():
+                                file_status_chat = gr.Textbox(label="Status", interactive=False)
+                        chatbot = gr.Chatbot(label="Chat History", visible=False, type="messages")
+                        query_input = gr.Textbox(label="Ask about your resume", placeholder="Type your question here...", visible=False)
+                        send_btn = gr.Button("Send", visible=False)
+                    else:
+                        gr.Markdown("## Chat with Resume (Unavailable)")
+                        gr.Textbox(value="Chat module is not available.", interactive=False)
 
-            # --- History Section ---
-            with gr.Column(visible=False) as history_selection:
-                gr.Markdown("## Your Interview History")
-                load_history_btn = gr.Button("Load My Past Interviews")
-                history_output = gr.Textbox(label="Past Interviews", max_lines=30, interactive=False, visible=True)
+                # --- History Section ---
+                with gr.Column(visible=False) as history_selection:
+                    gr.Markdown("## Your Interview History")
+                    load_history_btn = gr.Button("Load My Past Interviews")
+                    history_output = gr.Textbox(label="Past Interviews", max_lines=30, interactive=False, visible=True)
 
-    # Navigation button listeners (these should be inside the main_app column)
-    interview_btn.click(fn=navigate_to_interview, inputs=None, outputs=[interview_view, chat_view, history_view])
+    # --- Event Listeners for Navigation ---
+    mock_interview_btn.click(
+        fn=navigate_to_interview, 
+        inputs=None, 
+        outputs=[interview_selection, chat_selection, history_selection]
+    )
     if CHAT_MODULE_AVAILABLE:
-        chat_btn.click(fn=navigate_to_chat, inputs=None, outputs=[interview_view, chat_view, history_view])
-    history_btn.click(fn=navigate_to_history, inputs=None, outputs=[interview_view, chat_view, history_view])
+        chat_btn.click(
+            fn=navigate_to_chat, 
+            inputs=None, 
+            outputs=[interview_selection, chat_selection, history_selection]
+        )
+    history_btn.click(
+        fn=navigate_to_history, 
+        inputs=None, 
+        outputs=[interview_selection, chat_selection, history_selection]
+    )
 
     # --- Event Listeners for Interview ---
     process_btn_interview.click(
@@ -308,7 +308,7 @@ with gr.Column(visible=False) as main_app:
             audio_input, submit_answer_btn, next_question_btn,
             feedback_display, metrics_display, submit_interview_btn,
             question_display, answer_instructions,
-            answer_display, metrics_display # Clear previous
+            answer_display, metrics_display
         ]
     )
     submit_interview_btn.click(
@@ -340,10 +340,8 @@ with gr.Column(visible=False) as main_app:
             outputs=[query_input, chatbot]
         )
 
-    # --- NEW: Event Listener for History ---
-    # This function will use the interview_history_state to display past interviews
+    # --- Event Listener for History ---
     def load_user_history_local(interview_history_state):
-        """Function to load and format interview history for display in the UI."""
         if not interview_history_state:
             return "No interview history found for this session."
         output_text = "**Your Recent Mock Interviews:**\n\n"
