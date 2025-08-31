@@ -13,8 +13,8 @@ load_dotenv()
 
 # --- Generative AI Setup ---
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY") or "YOUR_DEFAULT_API_KEY_HERE")
-TEXT_MODEL = genai.GenerativeModel("gemini-1.5-flash") # Global model instance
-print("Using Generative AI model: gemini-1.5-flash")
+TEXT_MODEL = genai.GenerativeModel("gemini-2.5-flash") # Global model instance
+print("Using Generative AI model: gemini-2.5-flash")
 
 # --- Import Logic Modules ---
 import interview_logic
