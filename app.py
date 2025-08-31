@@ -186,7 +186,7 @@ with gr.Blocks(title="PrepGenie - Mock Interviewer") as demo:
     # Create a new state to hold interview history for this session
     interview_history_state = gr.State([]) # List of past interviews for this session
     
-    # Define the state variable that was causing the error
+    # Define the state variable that was causing the error 
     processed_resume_data_state = gr.State("")
 
     # --- Header Section ---
