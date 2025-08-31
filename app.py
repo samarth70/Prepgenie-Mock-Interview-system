@@ -13,8 +13,8 @@ load_dotenv()
 
 # --- Generative AI Setup ---
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY") or "YOUR_DEFAULT_API_KEY_HERE")
-TEXT_MODEL = genai.GenerativeModel("gemini-2.5-flash") # Global model instance
-print("Using Generative AI model: gemini-2.5-flash")
+TEXT_MODEL = genai.GenerativeModel("gemini-1.5-flash") # Global model instance
+print("Using Generative AI model: gemini-1.5-flash")
 
 # --- Import Logic Modules ---
 import interview_logic
@@ -185,6 +185,9 @@ with gr.Blocks(title="PrepGenie - Mock Interviewer") as demo:
     interview_state = gr.State({})
     # Create a new state to hold interview history for this session
     interview_history_state = gr.State([]) # List of past interviews for this session
+    
+    # Define the state variable that was causing the error
+    processed_resume_data_state = gr.State("")
 
     # --- Header Section ---
     with gr.Row():
@@ -201,18 +204,32 @@ with gr.Blocks(title="PrepGenie - Mock Interviewer") as demo:
     with gr.Column(visible=True) as main_app:
         with gr.Row():
             with gr.Column(scale=1):
-                # Navigation buttons
+                # Remove logout button
+                # logout_btn = gr.Button("Logout")
+            with gr.Column(scale=4):
+                welcome_display = gr.Markdown("### Welcome, User!")
+
+        with gr.Row():
+            with gr.Column(scale=1):
+                # Remove login/signup buttons
+                # interview_btn = gr.Button("Mock Interview")
+                # if CHAT_MODULE_AVAILABLE:
+                #     chat_btn = gr.Button("Chat with Resume")
+                # else:
+                #     chat_btn = gr.Button("Chat with Resume (Unavailable)", interactive=False)
+                # history_btn = gr.Button("My Interview History")
+
+                # Replace with direct buttons
                 mock_interview_btn = gr.Button("Mock Interview")
                 if CHAT_MODULE_AVAILABLE:
                     chat_btn = gr.Button("Chat with Resume")
                 else:
                     chat_btn = gr.Button("Chat with Resume (Unavailable)", interactive=False)
                 history_btn = gr.Button("My Interview History")
-            
-            # Main content area - this needs to be a single column that contains all the sections
+
             with gr.Column(scale=4):
                 # --- Interview Section ---
-                with gr.Column(visible=True) as interview_selection:
+                with gr.Column(visible=False) as interview_selection:
                     gr.Markdown("## Mock Interview")
                     with gr.Row():
                         with gr.Column():
@@ -242,8 +259,8 @@ with gr.Blocks(title="PrepGenie - Mock Interviewer") as demo:
                         evaluation_chart_display = gr.Image(label="Skills Breakdown", type="pil", visible=False)
 
                 # --- Chat Section ---
-                with gr.Column(visible=False) as chat_selection:
-                    if CHAT_MODULE_AVAILABLE:
+                if CHAT_MODULE_AVAILABLE:
+                    with gr.Column(visible=False) as chat_selection:
                         gr.Markdown("## Chat with Resume")
                         with gr.Row():
                             with gr.Column():
@@ -254,33 +271,28 @@ with gr.Blocks(title="PrepGenie - Mock Interviewer") as demo:
                         chatbot = gr.Chatbot(label="Chat History", visible=False, type="messages")
                         query_input = gr.Textbox(label="Ask about your resume", placeholder="Type your question here...", visible=False)
                         send_btn = gr.Button("Send", visible=False)
-                    else:
+                else:
+                    with gr.Column(visible=False) as chat_selection:
                         gr.Markdown("## Chat with Resume (Unavailable)")
                         gr.Textbox(value="Chat module is not available.", interactive=False)
 
                 # --- History Section ---
                 with gr.Column(visible=False) as history_selection:
                     gr.Markdown("## Your Interview History")
+                    # Use the new history_state to load past interviews
                     load_history_btn = gr.Button("Load My Past Interviews")
                     history_output = gr.Textbox(label="Past Interviews", max_lines=30, interactive=False, visible=True)
 
-    # --- Event Listeners for Navigation ---
-    mock_interview_btn.click(
-        fn=navigate_to_interview, 
-        inputs=None, 
-        outputs=[interview_selection, chat_selection, history_selection]
-    )
-    if CHAT_MODULE_AVAILABLE:
-        chat_btn.click(
-            fn=navigate_to_chat, 
-            inputs=None, 
-            outputs=[interview_selection, chat_selection, history_selection]
-        )
-    history_btn.click(
-        fn=navigate_to_history, 
-        inputs=None, 
-        outputs=[interview_selection, chat_selection, history_selection]
-    )
+        # Assign view variables for navigation
+        interview_view = interview_selection
+        chat_view = chat_selection
+        history_view = history_selection
+
+        # Navigation button listeners
+        mock_interview_btn.click(fn=navigate_to_interview, inputs=None, outputs=[interview_view, chat_view, history_view])
+        if CHAT_MODULE_AVAILABLE:
+            chat_btn.click(fn=navigate_to_chat, inputs=None, outputs=[interview_view, chat_view, history_view])
+        history_btn.click(fn=navigate_to_history, inputs=None, outputs=[interview_view, chat_view, history_view])
 
     # --- Event Listeners for Interview ---
     process_btn_interview.click(
@@ -355,7 +367,8 @@ with gr.Blocks(title="PrepGenie - Mock Interviewer") as demo:
             outputs=[query_input, chatbot]
         )
 
-    # --- Event Listener for History ---
+    # --- NEW: Event Listener for History ---
+    # This function will use the interview_history_state to display past interviews
     def load_user_history_local(interview_history_state):
         """Function to load and format interview history for display in the UI."""
         if not interview_history_state:
