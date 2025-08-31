@@ -200,98 +200,72 @@ with gr.Blocks(title="PrepGenie - Mock Interviewer") as demo:
             elem_id="title"
         )
 
-    # --- Main App Sections ---
-    with gr.Column(visible=True) as main_app:
-        with gr.Row():
-            with gr.Column(scale=1):
-                # Remove logout button
-                # logout_btn = gr.Button("Logout")
-            with gr.Column(scale=4):
-                welcome_display = gr.Markdown("### Welcome, User!")
-        with gr.Row():
-            with gr.Column(scale=1):
-                # Remove login/signup buttons
-                # interview_btn = gr.Button("Mock Interview")
-                # if CHAT_MODULE_AVAILABLE:
-                #     chat_btn = gr.Button("Chat with Resume")
-                # else:
-                #     chat_btn = gr.Button("Chat with Resume (Unavailable)", interactive=False)
-                # history_btn = gr.Button("My Interview History")
+# --- Main App Sections ---
+with gr.Column(visible=False) as main_app:
+    with gr.Row():
+        with gr.Column(scale=1):
+             logout_btn = gr.Button("Logout")
+        # This column needs content indented inside it
+        with gr.Column(scale=4):
+            # --- Interview Section ---
+            with gr.Column(visible=False) as interview_selection:
+                gr.Markdown("## Mock Interview")
+                with gr.Row():
+                    with gr.Column():
+                        file_upload_interview = gr.File(label="Upload Resume (PDF)", file_types=[".pdf"])
+                        process_btn_interview = gr.Button("Process Resume")
+                    with gr.Column():
+                        file_status_interview = gr.Textbox(label="Status", interactive=False)
+                role_selection = gr.Dropdown(
+                    choices=["Data Scientist", "Software Engineer", "Product Manager", "Data Analyst", "Business Analyst"],
+                    multiselect=True, label="Select Job Role(s)", visible=False
+                )
+                start_interview_btn = gr.Button("Start Interview", visible=False)
+                question_display = gr.Textbox(label="Question", interactive=False, visible=False)
+                answer_instructions = gr.Markdown("Click 'Record Answer' and speak your response.", visible=False)
+                audio_input = gr.Audio(label="Record Answer", type="numpy", visible=False)
+                submit_answer_btn = gr.Button("Submit Answer", visible=False)
+                next_question_btn = gr.Button("Next Question", visible=False)
+                submit_interview_btn = gr.Button("Submit Interview", visible=False, variant="primary")
+                answer_display = gr.Textbox(label="Your Answer", interactive=False, visible=False)
+                feedback_display = gr.Textbox(label="Feedback", interactive=False, visible=False)
+                metrics_display = gr.JSON(label="Metrics", visible=False)
+                processed_resume_data_hidden_interview = gr.Textbox(visible=False)
+                # --- Evaluation Results Section ---
+                with gr.Column(visible=False) as evaluation_selection:
+                    gr.Markdown("## Interview Evaluation Results")
+                    evaluation_report_display = gr.Markdown(label="Your Evaluation Report", visible=False)
+                    evaluation_chart_display = gr.Image(label="Skills Breakdown", type="pil", visible=False)
 
-                # Replace with direct buttons
-                mock_interview_btn = gr.Button("Mock Interview")
-                if CHAT_MODULE_AVAILABLE:
-                    chat_btn = gr.Button("Chat with Resume")
-                else:
-                    chat_btn = gr.Button("Chat with Resume (Unavailable)", interactive=False)
-                history_btn = gr.Button("My Interview History")
-
-            with gr.Column(scale=4):
-                # --- Interview Section ---
-                with gr.Column(visible=False) as interview_selection:
-                    gr.Markdown("## Mock Interview")
+            # --- Chat Section ---
+            if CHAT_MODULE_AVAILABLE:
+                with gr.Column(visible=False) as chat_selection:
+                    gr.Markdown("## Chat with Resume")
                     with gr.Row():
                         with gr.Column():
-                            file_upload_interview = gr.File(label="Upload Resume (PDF)", file_types=[".pdf"])
-                            process_btn_interview = gr.Button("Process Resume")
+                            file_upload_chat = gr.File(label="Upload Resume (PDF)", file_types=[".pdf"])
+                            process_chat_btn = gr.Button("Process Resume")
                         with gr.Column():
-                            file_status_interview = gr.Textbox(label="Status", interactive=False)
-                    role_selection = gr.Dropdown(
-                        choices=["Data Scientist", "Software Engineer", "Product Manager", "Data Analyst", "Business Analyst"],
-                        multiselect=True, label="Select Job Role(s)", visible=False
-                    )
-                    start_interview_btn = gr.Button("Start Interview", visible=False)
-                    question_display = gr.Textbox(label="Question", interactive=False, visible=False)
-                    answer_instructions = gr.Markdown("Click 'Record Answer' and speak your response.", visible=False)
-                    audio_input = gr.Audio(label="Record Answer", type="numpy", visible=False)
-                    submit_answer_btn = gr.Button("Submit Answer", visible=False)
-                    next_question_btn = gr.Button("Next Question", visible=False)
-                    submit_interview_btn = gr.Button("Submit Interview", visible=False, variant="primary")
-                    answer_display = gr.Textbox(label="Your Answer", interactive=False, visible=False)
-                    feedback_display = gr.Textbox(label="Feedback", interactive=False, visible=False)
-                    metrics_display = gr.JSON(label="Metrics", visible=False)
-                    processed_resume_data_hidden_interview = gr.Textbox(visible=False)
-                    # --- Evaluation Results Section ---
-                    with gr.Column(visible=False) as evaluation_selection:
-                        gr.Markdown("## Interview Evaluation Results")
-                        evaluation_report_display = gr.Markdown(label="Your Evaluation Report", visible=False)
-                        evaluation_chart_display = gr.Image(label="Skills Breakdown", type="pil", visible=False)
+                            file_status_chat = gr.Textbox(label="Status", interactive=False)
+                    chatbot = gr.Chatbot(label="Chat History", visible=False, type="messages")
+                    query_input = gr.Textbox(label="Ask about your resume", placeholder="Type your question here...", visible=False)
+                    send_btn = gr.Button("Send", visible=False)
+            else:
+                with gr.Column(visible=False) as chat_selection:
+                    gr.Markdown("## Chat with Resume (Unavailable)")
+                    gr.Textbox(value="Chat module is not available.", interactive=False)
 
-                # --- Chat Section ---
-                if CHAT_MODULE_AVAILABLE:
-                    with gr.Column(visible=False) as chat_selection:
-                        gr.Markdown("## Chat with Resume")
-                        with gr.Row():
-                            with gr.Column():
-                                file_upload_chat = gr.File(label="Upload Resume (PDF)", file_types=[".pdf"])
-                                process_chat_btn = gr.Button("Process Resume")
-                            with gr.Column():
-                                file_status_chat = gr.Textbox(label="Status", interactive=False)
-                        chatbot = gr.Chatbot(label="Chat History", visible=False, type="messages")
-                        query_input = gr.Textbox(label="Ask about your resume", placeholder="Type your question here...", visible=False)
-                        send_btn = gr.Button("Send", visible=False)
-                else:
-                    with gr.Column(visible=False) as chat_selection:
-                        gr.Markdown("## Chat with Resume (Unavailable)")
-                        gr.Textbox(value="Chat module is not available.", interactive=False)
+            # --- History Section ---
+            with gr.Column(visible=False) as history_selection:
+                gr.Markdown("## Your Interview History")
+                load_history_btn = gr.Button("Load My Past Interviews")
+                history_output = gr.Textbox(label="Past Interviews", max_lines=30, interactive=False, visible=True)
 
-                # --- History Section ---
-                with gr.Column(visible=False) as history_selection:
-                    gr.Markdown("## Your Interview History")
-                    # Use the new history_state to load past interviews
-                    load_history_btn = gr.Button("Load My Past Interviews")
-                    history_output = gr.Textbox(label="Past Interviews", max_lines=30, interactive=False, visible=True)
-
-        # Assign view variables for navigation
-        interview_view = interview_selection
-        chat_view = chat_selection
-        history_view = history_selection
-
-        # Navigation button listeners
-        mock_interview_btn.click(fn=navigate_to_interview, inputs=None, outputs=[interview_view, chat_view, history_view])
-        if CHAT_MODULE_AVAILABLE:
-            chat_btn.click(fn=navigate_to_chat, inputs=None, outputs=[interview_view, chat_view, history_view])
-        history_btn.click(fn=navigate_to_history, inputs=None, outputs=[interview_view, chat_view, history_view])
+    # Navigation button listeners (these should be inside the main_app column)
+    interview_btn.click(fn=navigate_to_interview, inputs=None, outputs=[interview_view, chat_view, history_view])
+    if CHAT_MODULE_AVAILABLE:
+        chat_btn.click(fn=navigate_to_chat, inputs=None, outputs=[interview_view, chat_view, history_view])
+    history_btn.click(fn=navigate_to_history, inputs=None, outputs=[interview_view, chat_view, history_view])
 
     # --- Event Listeners for Interview ---
     process_btn_interview.click(
