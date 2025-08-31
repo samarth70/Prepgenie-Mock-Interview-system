@@ -208,7 +208,6 @@ with gr.Blocks(title="PrepGenie - Mock Interviewer") as demo:
                 # logout_btn = gr.Button("Logout")
             with gr.Column(scale=4):
                 welcome_display = gr.Markdown("### Welcome, User!")
-
         with gr.Row():
             with gr.Column(scale=1):
                 # Remove login/signup buttons
