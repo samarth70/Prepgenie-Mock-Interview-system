@@ -101,7 +101,7 @@ def submit_answer_handler(audio, interview_state):
         "Adaptability and resilience": 0.0
     }
     
-    metrics_update = gr.update(visible=True, value=metrics_value) if "gr_show_and_update" in result["ui_updates"].values() else ui_updates.get("metrics_display", gr.update()
+    metrics_update = gr.update(visible=True, value=metrics_value) if "gr_show_and_update" in result["ui_updates"].values() else ui_updates.get("metrics_display", gr.update())
     if "gr_show_and_update" in result["ui_updates"].values():
         metrics_update = gr.update(visible=True, value=result["metrics"])
 
