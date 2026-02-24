@@ -139,8 +139,21 @@ def next_question_handler(interview_state):
         ui_updates.get("metrics_display_clear", {}) 
     )
 
-def submit_interview_handler(interview_state):
+def submit_interview_handler(interview_state, session_history):
     result = interview_logic.submit_interview_logic(interview_state, TEXT_MODEL)
+    
+    # Save to session history if evaluation succeeded
+    if result.get("report_text") and interview_state:
+        import datetime
+        record = {
+            "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "selected_roles": interview_state.get("selected_roles", []),
+            "interactions": interview_state.get("interactions", {}),
+            "feedback": interview_state.get("feedback", []),
+            "average_rating": sum(interview_state.get("metrics_list", [{}])[0].values()) / 5 if interview_state.get("metrics_list") else 0.0
+        }
+        session_history = interview_history.save_interview_history(session_history, record)
+
     ui_updates = apply_ui_updates(result["ui_updates"])
 
     report_update = ui_updates.get("evaluation_report_display", gr.update())
@@ -159,7 +172,8 @@ def submit_interview_handler(interview_state):
         result["status"],
         result["interview_state"], 
         report_update,
-        chart_update
+        chart_update,
+        session_history
     )
 
 # --- Chat Module Functions ---
@@ -176,7 +190,8 @@ except ImportError as e:
 with gr.Blocks(title="PrepGenie - Mock Interviewer") as demo:
     # --- State Variables ---
     interview_state = gr.State({})
-    interview_history_state = gr.State([]) 
+    session_history_state = gr.State([])
+    # interview_history_state = gr.State([]) 
     processed_resume_data_state = gr.State("")
 
     # --- Header ---
@@ -320,12 +335,13 @@ with gr.Blocks(title="PrepGenie - Mock Interviewer") as demo:
     )
     submit_interview_btn.click(
         fn=submit_interview_handler,
-        inputs=[interview_state],
+        inputs=[interview_state,session_history_state],
         outputs=[
             file_status_interview,
             interview_state,
             evaluation_report_display,
-            evaluation_chart_display
+            evaluation_chart_display,
+            session_history_state
         ]
     )
 
@@ -387,7 +403,14 @@ with gr.Blocks(title="PrepGenie - Mock Interviewer") as demo:
 
         return output_text
 
-    load_history_btn.click(fn=load_user_history_local, inputs=[interview_history_state], outputs=[history_output])
+    def load_history_handler(session_history):
+        return interview_history.format_history_for_display(session_history)
+    
+    load_history_btn.click(
+        fn=load_history_handler,
+        inputs=[session_history_state],
+        outputs=[history_output]
+    )
 
 if __name__ == "__main__":
     demo.launch(server_name="0.0.0.0")
