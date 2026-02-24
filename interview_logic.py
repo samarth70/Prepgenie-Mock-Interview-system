@@ -433,14 +433,30 @@ def start_interview_logic(roles, processed_resume_data, text_model):
             "initial_question": "",
             "interview_state": {},
             "ui_updates": {
-                "audio_input": "gr_hide", "submit_answer_btn": "gr_hide", "next_question_btn": "gr_hide",
-                "submit_interview_btn": "gr_hide", "feedback_display": "gr_hide", "metrics_display": "gr_hide",
-                "question_display": "gr_hide", "answer_instructions": "gr_hide"
+                "audio_input": "gr_show",        # show recording for Q1
+                "submit_answer_btn": "gr_show",  # show submit for Q1
+                "next_question_btn": "gr_hide",  # hidden — must submit first
+                "submit_interview_btn": "gr_hide",
+                "feedback_display": "gr_hide",
+                "metrics_display": "gr_hide",
+                "question_display": "gr_show",
+                "answer_instructions": "gr_show"
             }
         }
     try:
         questions = generate_questions(roles, processed_resume_data, text_model)
-        initial_question = questions[0] if questions else "Could you please introduce yourself?"
+        default_questions = [
+            "Could you please introduce yourself based on your resume?",
+            "What are your key technical skills relevant to this role?",
+            "Describe a challenging project you've worked on and how you handled it.",
+            "Where do you see yourself in 5 years?",
+            "Do you have any questions for us?"
+        ]
+        while len(questions) < 5:
+            questions.append(default_questions[len(questions)])
+        questions = questions[:5]  # cap at 5
+        
+        initial_question = questions[0]
         interview_state = {
             "questions": questions,
             "current_q_index": 0,
@@ -518,19 +534,22 @@ def submit_answer_logic(audio, interview_state, text_model):
         interview_state["current_q_index"] += 1
         total_questions = len(interview_state["questions"])
         is_last_question = interview_state["current_q_index"] >= total_questions
+        
         return {
-            "status": f"Answer submitted! {'Click Submit Interview to see your evaluation.' if is_last_question else 'Click Next Question to continue.'}",
+            "status": f"Answer submitted! {'All questions answered — click Submit Interview.' if is_last_question else 'Click Next Question to continue.'}",
             "answer_text": answer_text,
             "interview_state": interview_state,
             "feedback_text": feedback_text,
             "metrics": metrics,
             "ui_updates": {
-                "feedback_display": "gr_show_and_update", "metrics_display": "gr_show_and_update",
-                "audio_input": "gr_hide",
-                "submit_answer_btn": "gr_hide",
+                "feedback_display": "gr_show_and_update",
+                "metrics_display": "gr_show_and_update",
+                "audio_input": "gr_hide",          # hide until Next is clicked
+                "submit_answer_btn": "gr_hide",    # hide until Next is clicked
                 "next_question_btn": "gr_hide" if is_last_question else "gr_show",
                 "submit_interview_btn": "gr_show" if is_last_question else "gr_hide",
-                "question_display": "gr_show", "answer_instructions": "gr_show"
+                "question_display": "gr_show",
+                "answer_instructions": "gr_show"
             }
         }
     except Exception as e:
@@ -571,10 +590,16 @@ def next_question_logic(interview_state):
             "next_q": next_q,
             "interview_state": interview_state,
             "ui_updates": {
-                "audio_input": "gr_show", "submit_answer_btn": "gr_show", "next_question_btn": "gr_hide",
-                "feedback_display": "gr_hide", "metrics_display": "gr_hide", "submit_interview_btn": "gr_hide",
-                "question_display": "gr_show", "answer_instructions": "gr_show",
-                "answer_display": "gr_clear", "metrics_display_clear": "gr_clear"
+                "audio_input": "gr_show",
+                "submit_answer_btn": "gr_show",
+                "next_question_btn": "gr_hide",
+                "feedback_display": "gr_hide",
+                "metrics_display": "gr_hide",
+                "submit_interview_btn": "gr_hide",
+                "question_display": "gr_show",
+                "answer_instructions": "gr_show",
+                "answer_display": "gr_clear",
+                "metrics_display_clear": "gr_clear"
             }
         }
     else:
