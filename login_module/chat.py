@@ -12,7 +12,7 @@ load_dotenv()
 # Configure Generative AI (Ensure model name is correct)
 # Note: 'gemini-2.5-flash' might need verification. Common ones are 'gemini-1.5-flash', 'gemini-pro'.
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-text_model = genai.GenerativeModel("gemini-2.5-flash") # Potentially incorrect model name
+text_model = genai.GenerativeModel("gemini-2.0-flash") # Potentially incorrect model name
 # text_model = genai.GenerativeModel("gemini-1.5-flash") # Using a known model name
 # print("Using Generative AI model for chat: gemini-1.5-flash")
 
