@@ -115,38 +115,77 @@ def generate_feedback(question, answer):
         return "0.00"
 
 def generate_questions(roles, data, text_model):
-    """Generates interview questions based on resume and roles."""
+    """Generates 5 interview questions based on resume and roles."""
     if not roles or (isinstance(roles, list) and not any(roles)) or not data or not data.strip():
-        return ["Could you please introduce yourself based on your resume?"]
-    questions = []
+        return [
+            "Could you please introduce yourself based on your resume?",
+            "What are your key technical skills relevant to this role?",
+            "Describe a challenging project you've worked on and how you resolved it.",
+            "How do you prioritize tasks when working under tight deadlines?",
+            "Where do you see yourself professionally in the next 3 to 5 years?"
+        ]
+
     if isinstance(roles, list):
         roles_str = ", ".join(roles)
     else:
         roles_str = str(roles)
-    text = f"""If this is not a resume then return text uploaded pdf is not a resume. this is a resume overview of the candidate.
-            The candidate details are in {data}. The candidate has applied for the role of {roles_str}.
-            Generate questions for the candidate based on the role applied and on the Resume of the candidate.
-            Not always necessary to ask only technical questions related to the role but the logic of question
-            should include the job applied for because there might be some deep tech questions which the user might not know.
-            Ask some personal questions too. Ask no additional questions. Don't categorize the questions.
-            ask 2 questions only. directly ask the questions not anything else.
-            Also ask the questions in a polite way. Ask the questions in a way that the candidate can understand the question.
-            and make sure the questions are related to these metrics: Communication skills, Teamwork and collaboration,
-            Problem-solving and critical thinking, Time management and organization, Adaptability and resilience."""
+
+    text = f"""You are an experienced interviewer conducting a mock interview.
+The candidate's resume overview is: {data}
+The candidate has applied for the role of: {roles_str}
+
+Generate EXACTLY 5 interview questions for this candidate. Follow these rules strictly:
+1. Output ONLY the 5 questions, one per line, numbered 1 to 5.
+2. Do NOT include any introduction, explanation, category labels, or extra text — just the questions.
+3. Each question must end with a question mark.
+4. Mix the questions across these areas:
+   - 1 introduction/background question based on their resume
+   - 1 technical question relevant to the role of {roles_str}
+   - 1 behavioral question (teamwork, collaboration, or conflict resolution)
+   - 1 problem-solving or situational question
+   - 1 personal/career goals question
+5. Keep questions polite, clear, and conversational.
+6. Tailor the questions specifically to the candidate's background and the role applied for.
+
+Example format (do not copy these, generate your own):
+1. Can you walk us through your experience with data analysis tools mentioned in your resume?
+2. How would you approach building a dashboard from scratch for a non-technical stakeholder?
+3. Tell me about a time you had to collaborate with a difficult team member. How did you handle it?
+4. If given an ambiguous dataset with missing values, what steps would you take to analyze it?
+5. Where do you see your career heading in the next 3 to 5 years?"""
+
     try:
         response = text_model.generate_content(text)
         response.resolve()
         questions_text = response.text.strip()
-        questions = [q.strip() for q in questions_text.split('\n') if q.strip()]
-        if not questions:
-             questions = [q.strip() for q in questions_text.split('?') if q.strip()]
-        if not questions:
-             questions = [q.strip() for q in questions_text.split('.') if q.strip()]
-        questions = questions[:2] if questions else ["Could you please introduce yourself based on your resume?"]
+
+        # Parse numbered questions (e.g. "1. Question here?")
+        import re
+        questions = re.findall(r'^\d+[\.\)]\s*(.+)', questions_text, re.MULTILINE)
+        questions = [q.strip() for q in questions if q.strip()]
+
+        # Fallback: split by newline if numbered parsing fails
+        if len(questions) < 3:
+            questions = [q.strip() for q in questions_text.split('\n') if q.strip() and '?' in q]
+
+        print(f"Generated {len(questions)} questions: {questions}")
+
     except Exception as e:
         print(f"Error generating questions in interview_logic: {e}")
-        questions = ["Could you please introduce yourself based on your resume?"]
-    return questions
+        questions = []
+
+    # Pad with defaults if AI returned fewer than 5
+    defaults = [
+        "Could you please introduce yourself based on your resume?",
+        "What are your key technical skills relevant to this role?",
+        "Describe a challenging project you've worked on and how you resolved it.",
+        "How do you prioritize tasks when working under tight deadlines?",
+        "Where do you see yourself professionally in the next 3 to 5 years?"
+    ]
+    while len(questions) < 5:
+        questions.append(defaults[len(questions)])
+
+    return questions[:5]
 
 def generate_overall_feedback(data, percent, answer, question, text_model):
     """Generates overall feedback for an answer."""
