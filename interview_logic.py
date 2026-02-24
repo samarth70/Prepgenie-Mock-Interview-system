@@ -456,7 +456,7 @@ def start_interview_logic(roles, processed_resume_data, text_model):
             "initial_question": initial_question,
             "interview_state": interview_state,
             "ui_updates": {
-                "audio_input": "gr_show", "submit_answer_btn": "gr_show", "next_question_btn": "gr_show",
+                "audio_input": "gr_show", "submit_answer_btn": "gr_show", "next_question_btn": "gr_hide",
                 "submit_interview_btn": "gr_hide", "feedback_display": "gr_hide", "metrics_display": "gr_hide",
                 "question_display": "gr_show", "answer_instructions": "gr_show"
             }
@@ -486,7 +486,7 @@ def submit_answer_logic(audio, interview_state, text_model):
             "metrics": {},
             "ui_updates": {
                 "feedback_display": "gr_hide", "metrics_display": "gr_hide",
-                "audio_input": "gr_show", "submit_answer_btn": "gr_show", "next_question_btn": "gr_show",
+                "audio_input": "gr_show", "submit_answer_btn": "gr_show", "next_question_btn": "gr_hide",
                 "submit_interview_btn": "gr_hide", "question_display": "gr_show", "answer_instructions": "gr_show"
             }
         }
@@ -516,16 +516,21 @@ def submit_answer_logic(audio, interview_state, text_model):
         metrics = generate_metrics(interview_state["resume_data"], answer_text, current_question, text_model)
         interview_state["metrics_list"].append(metrics)
         interview_state["current_q_index"] += 1
+        total_questions = len(interview_state["questions"])
+        is_last_question = interview_state["current_q_index"] >= total_questions
         return {
-            "status": f"Answer submitted: {answer_text}",
+            "status": f"Answer submitted! {'Click Submit Interview to see your evaluation.' if is_last_question else 'Click Next Question to continue.'}",
             "answer_text": answer_text,
             "interview_state": interview_state,
             "feedback_text": feedback_text,
             "metrics": metrics,
             "ui_updates": {
                 "feedback_display": "gr_show_and_update", "metrics_display": "gr_show_and_update",
-                "audio_input": "gr_show", "submit_answer_btn": "gr_show", "next_question_btn": "gr_show",
-                "submit_interview_btn": "gr_hide", "question_display": "gr_show", "answer_instructions": "gr_show"
+                "audio_input": "gr_hide",
+                "submit_answer_btn": "gr_hide",
+                "next_question_btn": "gr_hide" if is_last_question else "gr_show",
+                "submit_interview_btn": "gr_show" if is_last_question else "gr_hide",
+                "question_display": "gr_show", "answer_instructions": "gr_show"
             }
         }
     except Exception as e:
@@ -551,9 +556,9 @@ def next_question_logic(interview_state):
             "next_q": "",
             "interview_state": interview_state,
             "ui_updates": {
-                "audio_input": "gr_show", "submit_answer_btn": "gr_show", "next_question_btn": "gr_show",
+                "audio_input": "gr_show", "submit_answer_btn": "gr_show", "next_question_btn": "gr_hide",
                 "feedback_display": "gr_hide", "metrics_display": "gr_hide", "submit_interview_btn": "gr_hide",
-                "question_display": "gr_hide", "answer_instructions": "gr_hide",
+                "question_display": "gr_show", "answer_instructions": "gr_show",
                 "answer_display": "gr_clear", "metrics_display_clear": "gr_clear"
             }
         }
@@ -566,7 +571,7 @@ def next_question_logic(interview_state):
             "next_q": next_q,
             "interview_state": interview_state,
             "ui_updates": {
-                "audio_input": "gr_show", "submit_answer_btn": "gr_show", "next_question_btn": "gr_show",
+                "audio_input": "gr_show", "submit_answer_btn": "gr_show", "next_question_btn": "gr_hide",
                 "feedback_display": "gr_hide", "metrics_display": "gr_hide", "submit_interview_btn": "gr_hide",
                 "question_display": "gr_show", "answer_instructions": "gr_show",
                 "answer_display": "gr_clear", "metrics_display_clear": "gr_clear"
