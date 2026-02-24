@@ -261,12 +261,17 @@ def generate_metrics(data, answer, question, text_model):
                 metrics[m] = 0.0
     except Exception as e:
         print(f"Error generating metrics in interview_logic: {e}")
-        metrics = {
-            "Communication skills": 0.0, "Teamwork and collaboration": 0.0,
-            "Problem-solving and critical thinking": 0.0, "Time management and organization": 0.0,
+        # BEFORE — returns empty dict which sometimes serializes as ""
+        return {}
+        
+        # AFTER — return explicit zeroed metrics so JSON component always gets valid data
+        return {
+            "Communication skills": 0.0,
+            "Teamwork and collaboration": 0.0,
+            "Problem-solving and critical thinking": 0.0,
+            "Time management and organization": 0.0,
             "Adaptability and resilience": 0.0
         }
-    return metrics
 
 def getmetrics(interaction, resume, text_model):
     """Gets overall metrics from AI based on interaction."""
