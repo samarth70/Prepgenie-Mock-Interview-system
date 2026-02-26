@@ -509,24 +509,22 @@ def process_resume_logic(file_obj):
             }
         }
 
-
 def start_interview_logic(roles, processed_resume_data, text_model):
     """Starts the interview process logic."""
     if not roles or (isinstance(roles, list) and not any(roles)) or not processed_resume_data or not processed_resume_data.strip():
         return {
             "status": "Please select a role and ensure resume is processed.",
             "initial_question": "",
-            "all_questions": "",
             "interview_state": {},
             "ui_updates": {
-                "audio_input": "gr_show",
-                "submit_answer_btn": "gr_show",
+                "audio_input": "gr_hide",
+                "submit_answer_btn": "gr_hide",
                 "next_question_btn": "gr_hide",
                 "submit_interview_btn": "gr_hide",
                 "feedback_display": "gr_hide",
                 "metrics_display": "gr_hide",
-                "question_display": "gr_show",
-                "answer_instructions": "gr_show"
+                "question_display": "gr_hide",
+                "answer_instructions": "gr_hide"
             }
         }
     try:
@@ -542,8 +540,7 @@ def start_interview_logic(roles, processed_resume_data, text_model):
             questions.append(default_questions[len(questions)])
         questions = questions[:5]  # cap at 5
         
-        # Display all 5 questions at once
-        all_questions_text = "\n\n".join([f"**Question {i+1}:** {q}" for i, q in enumerate(questions)])
+        # Show ONLY the first question (not all 5)
         initial_question = questions[0]
         
         interview_state = {
@@ -557,9 +554,8 @@ def start_interview_logic(roles, processed_resume_data, text_model):
             "selected_roles": roles
         }
         return {
-            "status": "Interview started. All 5 questions are displayed below. Answer them one by one.",
-            "initial_question": all_questions_text,  # Show all questions
-            "all_questions": all_questions_text,
+            "status": f"Interview started. Question 1 of {len(questions)}",
+            "initial_question": initial_question,  # Only first question
             "interview_state": interview_state,
             "ui_updates": {
                 "audio_input": "gr_show", 
@@ -578,7 +574,6 @@ def start_interview_logic(roles, processed_resume_data, text_model):
         return {
             "status": error_msg,
             "initial_question": "",
-            "all_questions": "",
             "interview_state": {},
             "ui_updates": {
                 "audio_input": "gr_hide", 
@@ -591,7 +586,6 @@ def start_interview_logic(roles, processed_resume_data, text_model):
                 "answer_instructions": "gr_hide"
             }
         }
-
 
 def submit_answer_logic(audio, interview_state, text_model):
     """Handles submitting an answer via audio logic."""
