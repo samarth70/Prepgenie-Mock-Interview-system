@@ -250,9 +250,9 @@ Be honest and constructive. Do not mention the exact score, but rate the candida
     
     return result
 
-
 def generate_metrics(data, answer, question, text_model):
     """Generates skill metrics for an answer."""
+    # Always return this default - never return empty dict
     default_metrics = {
         "Communication skills": 0.0,
         "Teamwork and collaboration": 0.0,
@@ -281,36 +281,39 @@ Problem-solving and critical thinking: [rating]
 Time management and organization: [rating]
 Adaptability and resilience: [rating]"""
     
-    success, result = safe_generate_content(text_model, text, "Could not generate metrics.")
-    if not success:
-        print(f"Metrics generation failed: {result}")
+    try:
+        response = text_model.generate_content(text)
+        response.resolve()
+        metrics_text = response.text.strip()
+        metrics = {}
+        
+        for line in metrics_text.split('\n'):
+            if ':' in line:
+                key, value_str = line.split(':', 1)
+                key = key.strip()
+                try:
+                    value_clean = value_str.strip().split()[0]
+                    value = float(value_clean)
+                    metrics[key] = value
+                except (ValueError, IndexError):
+                    metrics[key] = 0.0
+        
+        # Ensure all expected metrics exist
+        expected_metrics = [
+            "Communication skills", "Teamwork and collaboration",
+            "Problem-solving and critical thinking", "Time management and organization",
+            "Adaptability and resilience"
+        ]
+        for m in expected_metrics:
+            if m not in metrics:
+                metrics[m] = 0.0
+        
+        return metrics
+    
+    except Exception as e:
+        print(f"Error generating metrics in interview_logic: {e}")
+        # CRITICAL: Return default_metrics, NOT empty dict
         return default_metrics
-
-    metrics = {}
-    metrics_text = result.strip()
-    for line in metrics_text.split('\n'):
-        if ':' in line:
-            key, value_str = line.split(':', 1)
-            key = key.strip()
-            try:
-                value_clean = value_str.strip().split()[0]
-                value = float(value_clean)
-                metrics[key] = value
-            except (ValueError, IndexError):
-                metrics[key] = 0.0
-    
-    # Ensure all expected keys exist
-    expected_metrics = [
-        "Communication skills", "Teamwork and collaboration",
-        "Problem-solving and critical thinking", "Time management and organization",
-        "Adaptability and resilience"
-    ]
-    for m in expected_metrics:
-        if m not in metrics:
-            metrics[m] = 0.0
-    
-    return metrics
-
 
 def getmetrics(interaction, resume, text_model):
     """Gets overall metrics from AI based on interaction."""
