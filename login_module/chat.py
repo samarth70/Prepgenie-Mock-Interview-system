@@ -160,25 +160,30 @@ def process_resume_chat(file_obj):
 
 def chat_with_resume(query, resume_data, history):
     """Handles the chat interaction."""
-    # history is automatically managed by Gradio Chatbot, we just need to append to it
-    # Gradio Chatbot expects a list of tuples [(user_msg, bot_response), ...]
-    # If history is None, initialize as empty list
+    # Initialize history if None
     current_history = history if history is not None else []
-
+    
     if not query or not query.strip() or not resume_data or not resume_data.strip():
-        # Add an error message to the chat history if inputs are missing or empty
-        current_history.append((query if query else "", "Please enter a question and ensure your resume is processed."))
-        return "", current_history # Clear input, update history
-
+        # Add an error message to the chat history
+        current_history.append({"role": "user", "content": query if query else ""})
+        current_history.append({"role": "assistant", "content": "Please enter a question and ensure your resume is processed."})
+        return "", current_history
+    
     try:
+        # Generate answer
         answer = get_answer(query, resume_data)
-        # Append the valid Q&A to the history
-        current_history.append((query, answer))
-        return "", current_history # Clear input, update history
+        
+        # Append user message
+        current_history.append({"role": "user", "content": query})
+        # Append assistant message
+        current_history.append({"role": "assistant", "content": answer})
+        
+        return "", current_history
     except Exception as e:
         error_msg = f"Error during chat: {str(e)}"
         print(error_msg)
-        current_history.append((query, error_msg))
+        current_history.append({"role": "user", "content": query})
+        current_history.append({"role": "assistant", "content": error_msg})
         return "", current_history
 
 
