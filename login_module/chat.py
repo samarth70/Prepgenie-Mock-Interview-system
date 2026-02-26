@@ -172,9 +172,9 @@ def chat_with_resume(query, resume_data, history):
     try:
         answer = get_answer(query, resume_data)
         
-        # Append user message
+        # Append user message (dictionary format)
         current_history.append({"role": "user", "content": query})
-        # Append assistant message
+        # Append assistant message (dictionary format)
         current_history.append({"role": "assistant", "content": answer})
         
         return "", current_history
@@ -184,7 +184,6 @@ def chat_with_resume(query, resume_data, history):
         current_history.append({"role": "user", "content": query})
         current_history.append({"role": "assistant", "content": error_msg})
         return "", current_history
-
 
 # Print statement to confirm module load (optional)
 print("Chat module loaded successfully.")
