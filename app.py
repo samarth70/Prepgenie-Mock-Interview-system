@@ -93,7 +93,7 @@ def submit_answer_handler(audio, interview_state):
     result = interview_logic.submit_answer_logic(audio, interview_state, TEXT_MODEL)
     ui_updates = apply_ui_updates(result["ui_updates"])
     
-    # Guard: ensure metrics is always a valid dict
+    # Guard: ensure metrics is always a valid dict, never None or ""
     metrics_value = result.get("metrics") or {
         "Communication skills": 0.0,
         "Teamwork and collaboration": 0.0,
@@ -102,7 +102,7 @@ def submit_answer_handler(audio, interview_state):
         "Adaptability and resilience": 0.0
     }
     
-    # Define feedback_update properly
+    # FIX: Define feedback_update properly before using it
     feedback_update = ui_updates.get("feedback_display", gr.update())
     if "gr_show_and_update" in result["ui_updates"].values():
         feedback_update = gr.update(visible=True, value=result["feedback_text"])
@@ -116,7 +116,7 @@ def submit_answer_handler(audio, interview_state):
         result["status"],
         result["answer_text"],
         result["interview_state"],
-        feedback_update,
+        feedback_update,  # Now defined
         metrics_update,
         ui_updates.get("audio_input", gr.update()),
         ui_updates.get("submit_answer_btn", gr.update()),
