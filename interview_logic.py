@@ -469,17 +469,85 @@ def process_resume_logic(file_obj):
             }
         }
 
+# def start_interview_logic(roles, processed_resume_data, text_model):
+#     """Starts the interview process logic."""
+#     if not roles or (isinstance(roles, list) and not any(roles)) or not processed_resume_data or not processed_resume_data.strip():
+#         return {
+#             "status": "Please select a role and ensure resume is processed.",
+#             "initial_question": "",
+#             "interview_state": {},
+#             "ui_updates": {
+#                 "audio_input": "gr_show",        # show recording for Q1
+#                 "submit_answer_btn": "gr_show",  # show submit for Q1
+#                 "next_question_btn": "gr_hide",  # hidden — must submit first
+#                 "submit_interview_btn": "gr_hide",
+#                 "feedback_display": "gr_hide",
+#                 "metrics_display": "gr_hide",
+#                 "question_display": "gr_show",
+#                 "answer_instructions": "gr_show"
+#             }
+#         }
+#     try:
+#         questions = generate_questions(roles, processed_resume_data, text_model)
+#         default_questions = [
+#             "Could you please introduce yourself based on your resume?",
+#             "What are your key technical skills relevant to this role?",
+#             "Describe a challenging project you've worked on and how you handled it.",
+#             "Where do you see yourself in 5 years?",
+#             "Do you have any questions for us?"
+#         ]
+#         while len(questions) < 5:
+#             questions.append(default_questions[len(questions)])
+#         questions = questions[:5]  # cap at 5
+        
+#         initial_question = questions[0]
+#         interview_state = {
+#             "questions": questions,
+#             "current_q_index": 0,
+#             "answers": [],
+#             "feedback": [],
+#             "interactions": {},
+#             "metrics_list": [],
+#             "resume_data": processed_resume_data,
+#             "selected_roles": roles # Store roles for history
+#         }
+#         return {
+#             "status": "Interview started. Please answer the first question.",
+#             "initial_question": initial_question,
+#             "interview_state": interview_state,
+#             "ui_updates": {
+#                 "audio_input": "gr_show", "submit_answer_btn": "gr_show", "next_question_btn": "gr_hide",
+#                 "submit_interview_btn": "gr_hide", "feedback_display": "gr_hide", "metrics_display": "gr_hide",
+#                 "question_display": "gr_show", "answer_instructions": "gr_show"
+#             }
+#         }
+#     except Exception as e:
+#         error_msg = f"Error starting interview in interview_logic: {str(e)}"
+#         print(error_msg)
+#         return {
+#             "status": error_msg,
+#             "initial_question": "",
+#             "interview_state": {},
+#             "ui_updates": {
+#                 "audio_input": "gr_hide", "submit_answer_btn": "gr_hide", "next_question_btn": "gr_hide",
+#                 "submit_interview_btn": "gr_hide", "feedback_display": "gr_hide", "metrics_display": "gr_hide",
+#                 "question_display": "gr_hide", "answer_instructions": "gr_hide"
+#             }
+#         }
+
+
 def start_interview_logic(roles, processed_resume_data, text_model):
     """Starts the interview process logic."""
     if not roles or (isinstance(roles, list) and not any(roles)) or not processed_resume_data or not processed_resume_data.strip():
         return {
             "status": "Please select a role and ensure resume is processed.",
             "initial_question": "",
+            "all_questions": "",  # New field for all questions
             "interview_state": {},
             "ui_updates": {
-                "audio_input": "gr_show",        # show recording for Q1
-                "submit_answer_btn": "gr_show",  # show submit for Q1
-                "next_question_btn": "gr_hide",  # hidden — must submit first
+                "audio_input": "gr_show",
+                "submit_answer_btn": "gr_show",
+                "next_question_btn": "gr_hide",
                 "submit_interview_btn": "gr_hide",
                 "feedback_display": "gr_hide",
                 "metrics_display": "gr_hide",
@@ -500,7 +568,10 @@ def start_interview_logic(roles, processed_resume_data, text_model):
             questions.append(default_questions[len(questions)])
         questions = questions[:5]  # cap at 5
         
+        # Display all 5 questions at once
+        all_questions_text = "\n\n".join([f"**Question {i+1}:** {q}" for i, q in enumerate(questions)])
         initial_question = questions[0]
+        
         interview_state = {
             "questions": questions,
             "current_q_index": 0,
@@ -509,16 +580,22 @@ def start_interview_logic(roles, processed_resume_data, text_model):
             "interactions": {},
             "metrics_list": [],
             "resume_data": processed_resume_data,
-            "selected_roles": roles # Store roles for history
+            "selected_roles": roles
         }
         return {
-            "status": "Interview started. Please answer the first question.",
-            "initial_question": initial_question,
+            "status": "Interview started. All 5 questions are displayed below. Answer them one by one.",
+            "initial_question": all_questions_text,  # Show all questions
+            "all_questions": all_questions_text,
             "interview_state": interview_state,
             "ui_updates": {
-                "audio_input": "gr_show", "submit_answer_btn": "gr_show", "next_question_btn": "gr_hide",
-                "submit_interview_btn": "gr_hide", "feedback_display": "gr_hide", "metrics_display": "gr_hide",
-                "question_display": "gr_show", "answer_instructions": "gr_show"
+                "audio_input": "gr_show", 
+                "submit_answer_btn": "gr_show", 
+                "next_question_btn": "gr_hide",
+                "submit_interview_btn": "gr_hide", 
+                "feedback_display": "gr_hide", 
+                "metrics_display": "gr_hide",
+                "question_display": "gr_show", 
+                "answer_instructions": "gr_show"
             }
         }
     except Exception as e:
@@ -527,14 +604,19 @@ def start_interview_logic(roles, processed_resume_data, text_model):
         return {
             "status": error_msg,
             "initial_question": "",
+            "all_questions": "",
             "interview_state": {},
             "ui_updates": {
-                "audio_input": "gr_hide", "submit_answer_btn": "gr_hide", "next_question_btn": "gr_hide",
-                "submit_interview_btn": "gr_hide", "feedback_display": "gr_hide", "metrics_display": "gr_hide",
-                "question_display": "gr_hide", "answer_instructions": "gr_hide"
+                "audio_input": "gr_hide", 
+                "submit_answer_btn": "gr_hide", 
+                "next_question_btn": "gr_hide",
+                "submit_interview_btn": "gr_hide", 
+                "feedback_display": "gr_hide", 
+                "metrics_display": "gr_hide",
+                "question_display": "gr_hide", 
+                "answer_instructions": "gr_hide"
             }
         }
-
 def submit_answer_logic(audio, interview_state, text_model):
     """Handles submitting an answer via audio logic."""
     if not audio or not interview_state:
