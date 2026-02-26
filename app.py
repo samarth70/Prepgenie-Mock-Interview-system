@@ -93,7 +93,7 @@ def submit_answer_handler(audio, interview_state):
     result = interview_logic.submit_answer_logic(audio, interview_state, TEXT_MODEL)
     ui_updates = apply_ui_updates(result["ui_updates"])
     
-    # Guard: ensure metrics is always a valid dict, never None or ""
+    # Guard: ensure metrics is always a valid dict
     metrics_value = result.get("metrics") or {
         "Communication skills": 0.0,
         "Teamwork and collaboration": 0.0,
