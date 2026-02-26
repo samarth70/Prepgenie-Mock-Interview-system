@@ -170,7 +170,6 @@ def chat_with_resume(query, resume_data, history):
         return "", current_history
     
     try:
-        # Generate answer
         answer = get_answer(query, resume_data)
         
         # Append user message
