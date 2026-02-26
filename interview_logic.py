@@ -252,7 +252,7 @@ Be honest and constructive. Do not mention the exact score, but rate the candida
 
 def generate_metrics(data, answer, question, text_model):
     """Generates skill metrics for an answer."""
-    # Always return this default - never return empty dict
+    # CRITICAL: Always return this default - NEVER return empty dict
     default_metrics = {
         "Communication skills": 0.0,
         "Teamwork and collaboration": 0.0,
@@ -312,7 +312,7 @@ Adaptability and resilience: [rating]"""
     
     except Exception as e:
         print(f"Error generating metrics in interview_logic: {e}")
-        # CRITICAL: Return default_metrics, NOT empty dict
+        # CRITICAL FIX: Return default_metrics, NOT empty dict
         return default_metrics
 
 def getmetrics(interaction, resume, text_model):
