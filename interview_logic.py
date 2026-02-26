@@ -1,3 +1,4 @@
+
 # PrepGenie/interview_logic.py
 """Core logic for the mock interview process."""
 
@@ -13,17 +14,12 @@ import json
 import matplotlib.pyplot as plt
 import io
 import re
+import time
 
 # --- Configuration ---
-# These could potentially be moved to a config file or environment variables
-# For now, they are initialized here or passed in.
-# genai.configure(api_key=os.getenv("GOOGLE_API_KEY") or "YOUR_DEFAULT_API_KEY_HERE")
-# text_model = genai.GenerativeModel("gemini-1.5-flash") # This should be initialized in app.py or a central config
+# Note: text_model is passed in from app.py to avoid circular imports or global state issues.
 
 # --- BERT Model Loading ---
-# It's generally better to load large models once. This can be handled in app.py and passed if needed,
-# or loaded here if this module is imported once at startup.
-# For simplicity, we'll handle loading here, assuming it's imported once.
 try:
     model = TFBertModel.from_pretrained("bert-base-uncased")
     tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
@@ -35,22 +31,64 @@ except Exception as e:
     model = None
     tokenizer = None
 
+
+def safe_generate_content(text_model, prompt, fallback_message="Service temporarily unavailable. Please try again later."):
+    """
+    Wrapper for Gemini API calls that handles quota/rate limit errors gracefully.
+    Returns a tuple: (success: bool, result_or_error_message: str)
+    Includes exponential backoff for rate limits.
+    """
+    max_retries = 3
+    initial_delay = 2
+    
+    for attempt in range(max_retries):
+        try:
+            response = text_model.generate_content(prompt)
+            response.resolve()
+            return True, response.text
+        except Exception as e:
+            error_str = str(e).lower()
+            
+            # Check for quota/rate limit errors
+            if "429" in error_str or "quota" in error_str or "rate limit" in error_str:
+                print(f"Quota/Rate limit error (Attempt {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    delay = initial_delay * (2 ** attempt)
+                    print(f"Retrying in {delay}s...")
+                    time.sleep(delay)
+                    continue
+                else:
+                    return False, "⚠️ API quota exceeded. Please wait a few minutes and try again, or check your API plan."
+            
+            elif "403" in error_str or "permission" in error_str:
+                print(f"Permission error: {e}")
+                return False, "⚠️ API access denied. Please check your API key configuration."
+            
+            else:
+                print(f"API error: {e}")
+                # For non-retriable errors, return immediately
+                return False, f"⚠️ Service error: {fallback_message}"
+    
+    # Fallback if all retries exhausted
+    return False, "⚠️ Service unavailable after multiple attempts. Please try again later."
+
+
 # --- Core Logic Functions ---
 
 def getallinfo(data, text_model):
     """Processes raw resume text into a structured overview."""
     if not data or not data.strip():
         return "No data provided or data is empty."
+    
     text = f"""{data} is given by the user. Make sure you are getting the details like name, experience,
-            education, skills of the user like in a resume. If the details are not provided return: not a resume.
-            If details are provided then please try again and format the whole in a single paragraph covering all the information. """
-    try:
-        response = text_model.generate_content(text)
-        response.resolve()
-        return response.text
-    except Exception as e:
-        print(f"Error in getallinfo: {e}")
-        return "Error processing resume data."
+education, skills of the user like in a resume. If the details are not provided return: not a resume.
+If details are provided then please try again and format the whole in a single paragraph covering all the information. """
+    
+    success, result = safe_generate_content(text_model, text, "Could not process resume data.")
+    if not success:
+        return result  # Returns the warning message
+    return result
+
 
 def file_processing(pdf_file_path):
     """Processes the uploaded PDF file given its path."""
@@ -63,7 +101,9 @@ def file_processing(pdf_file_path):
             reader = PyPDF2.PdfReader(f)
             text = ""
             for page in reader.pages:
-                text += page.extract_text() or "" # Handle None from extract_text
+                extracted = page.extract_text()
+                if extracted:
+                    text += extracted
         return text
     except FileNotFoundError:
         error_msg = f"File not found at path: {pdf_file_path}"
@@ -77,6 +117,7 @@ def file_processing(pdf_file_path):
         error_msg = f"Unexpected error processing PDF from path {pdf_file_path}: {e}"
         print(error_msg)
         return ""
+
 
 def get_embedding(text):
     """Generates BERT embedding for a given text."""
@@ -93,6 +134,7 @@ def get_embedding(text):
     except Exception as e:
         print(f"Error getting embedding in interview_logic: {e}")
         return np.zeros((1, 768))
+
 
 def generate_feedback(question, answer):
     """Calculates similarity score between question and answer."""
@@ -114,16 +156,19 @@ def generate_feedback(question, answer):
         print(f"Error generating feedback in interview_logic: {e}")
         return "0.00"
 
+
 def generate_questions(roles, data, text_model):
     """Generates 5 interview questions based on resume and roles."""
+    default_questions = [
+        "Could you please introduce yourself based on your resume?",
+        "What are your key technical skills relevant to this role?",
+        "Describe a challenging project you've worked on and how you resolved it.",
+        "How do you prioritize tasks when working under tight deadlines?",
+        "Where do you see yourself professionally in the next 3 to 5 years?"
+    ]
+
     if not roles or (isinstance(roles, list) and not any(roles)) or not data or not data.strip():
-        return [
-            "Could you please introduce yourself based on your resume?",
-            "What are your key technical skills relevant to this role?",
-            "Describe a challenging project you've worked on and how you resolved it.",
-            "How do you prioritize tasks when working under tight deadlines?",
-            "Where do you see yourself professionally in the next 3 to 5 years?"
-        ]
+        return default_questions
 
     if isinstance(roles, list):
         roles_str = ", ".join(roles)
@@ -154,148 +199,141 @@ Example format (do not copy these, generate your own):
 4. If given an ambiguous dataset with missing values, what steps would you take to analyze it?
 5. Where do you see your career heading in the next 3 to 5 years?"""
 
-    try:
-        response = text_model.generate_content(text)
-        response.resolve()
-        questions_text = response.text.strip()
+    success, result = safe_generate_content(text_model, text, "Could not generate questions.")
+    
+    if not success:
+        print(f"Using fallback questions due to: {result}")
+        # Return default questions with the warning as the first item so user sees it
+        return [f"⚠️ {result}"] + default_questions[:4]
 
-        # Parse numbered questions (e.g. "1. Question here?")
-        import re
-        questions = re.findall(r'^\d+[\.\)]\s*(.+)', questions_text, re.MULTILINE)
-        questions = [q.strip() for q in questions if q.strip()]
+    # Parse the successful result
+    questions_text = result.strip()
+    questions = re.findall(r'^\d+[\.\)]\s*(.+)', questions_text, re.MULTILINE)
+    questions = [q.strip() for q in questions if q.strip()]
 
-        # Fallback: split by newline if numbered parsing fails
-        if len(questions) < 3:
-            questions = [q.strip() for q in questions_text.split('\n') if q.strip() and '?' in q]
+    # Fallback: split by newline if numbered parsing fails
+    if len(questions) < 3:
+        questions = [q.strip() for q in questions_text.split('\n') if q.strip() and '?' in q]
 
-        print(f"Generated {len(questions)} questions: {questions}")
-
-    except Exception as e:
-        print(f"Error generating questions in interview_logic: {e}")
-        questions = []
+    print(f"Generated {len(questions)} questions: {questions}")
 
     # Pad with defaults if AI returned fewer than 5
-    defaults = [
-        "Could you please introduce yourself based on your resume?",
-        "What are your key technical skills relevant to this role?",
-        "Describe a challenging project you've worked on and how you resolved it.",
-        "How do you prioritize tasks when working under tight deadlines?",
-        "Where do you see yourself professionally in the next 3 to 5 years?"
-    ]
     while len(questions) < 5:
-        questions.append(defaults[len(questions)])
+        questions.append(default_questions[len(questions)])
 
     return questions[:5]
+
 
 def generate_overall_feedback(data, percent, answer, question, text_model):
     """Generates overall feedback for an answer."""
     if not data or not data.strip() or not answer or not answer.strip() or not question or not question.strip():
         return "Unable to generate feedback due to missing information."
+    
     if isinstance(percent, float):
         percent_str = f"{percent:.2f}"
     else:
         percent_str = str(percent)
+    
     prompt = f"""As an interviewer, provide concise feedback (max 150 words) for candidate {data}.
-    Questions asked: {question} # Pass single question
-    Candidate's answers: {answer}
-    Score: {percent_str}
-    Feedback should include:
-    1. Overall performance assessment (2-3 sentences)
-    2. Key strengths (2-3 points)
-    3. Areas for improvement (2-3 points)
-    Be honest and constructive. Do not mention the exact score, but rate the candidate out of 10 based on their answers."""
-    try:
-        response = text_model.generate_content(prompt)
-        response.resolve()
-        return response.text
-    except Exception as e:
-        print(f"Error generating overall feedback in interview_logic: {e}")
-        return "Feedback could not be generated."
+Questions asked: {question}
+Candidate's answers: {answer}
+Score: {percent_str}
+Feedback should include:
+1. Overall performance assessment (2-3 sentences)
+2. Key strengths (2-3 points)
+3. Areas for improvement (2-3 points)
+Be honest and constructive. Do not mention the exact score, but rate the candidate out of 10 based on their answers."""
+    
+    success, result = safe_generate_content(text_model, prompt, "Could not generate feedback.")
+    if not success:
+        return f"Feedback unavailable: {result}"
+    
+    return result
+
 
 def generate_metrics(data, answer, question, text_model):
     """Generates skill metrics for an answer."""
+    default_metrics = {
+        "Communication skills": 0.0,
+        "Teamwork and collaboration": 0.0,
+        "Problem-solving and critical thinking": 0.0,
+        "Time management and organization": 0.0,
+        "Adaptability and resilience": 0.0
+    }
+    
     if not data or not data.strip() or not answer or not answer.strip() or not question or not question.strip():
-        return {
-            "Communication skills": 0.0, "Teamwork and collaboration": 0.0,
-            "Problem-solving and critical thinking": 0.0, "Time management and organization": 0.0,
-            "Adaptability and resilience": 0.0
-        }
-    metrics = {}
+        return default_metrics
+    
     text = f"""Here is the overview of the candidate {data}. In the interview the question asked was {question}.
-    The candidate has answered the question as follows: {answer}. Based on the answers provided, give me the metrics related to:
-    Communication skills, Teamwork and collaboration, Problem-solving and critical thinking, Time management and organization,
-    Adaptability and resilience.
-    Rules for rating:
-    - Rate each skill from 0 to 10
-    - If the answer is empty, 'Sorry could not recognize your voice', meaningless, or irrelevant: rate all skills as 0
-    - Only provide numeric ratings without any additional text or '/10'
-    - Ratings must reflect actual content quality - do not give courtesy points
-    - Consider answer relevance to the specific skill being rated
-    Format:
-    Communication skills: [rating]
-    Teamwork and collaboration: [rating]
-    Problem-solving and critical thinking: [rating]
-    Time management and organization: [rating]
-    Adaptability and resilience: [rating]"""
-    try:
-        response = text_model.generate_content(text)
-        response.resolve()
-        metrics_text = response.text.strip()
-        for line in metrics_text.split('\n'):
-            if ':' in line:
-                key, value_str = line.split(':', 1)
-                key = key.strip()
-                try:
-                    value_clean = value_str.strip().split()[0]
-                    value = float(value_clean)
-                    metrics[key] = value
-                except (ValueError, IndexError):
-                    metrics[key] = 0.0
-        expected_metrics = [
-            "Communication skills", "Teamwork and collaboration",
-            "Problem-solving and critical thinking", "Time management and organization",
-            "Adaptability and resilience"
-        ]
-        for m in expected_metrics:
-            if m not in metrics:
-                metrics[m] = 0.0
-    except Exception as e:
-        print(f"Error generating metrics in interview_logic: {e}")
-        # BEFORE — returns empty dict which sometimes serializes as ""
-        return {}
-        
-        # AFTER — return explicit zeroed metrics so JSON component always gets valid data
-        return {
-            "Communication skills": 0.0,
-            "Teamwork and collaboration": 0.0,
-            "Problem-solving and critical thinking": 0.0,
-            "Time management and organization": 0.0,
-            "Adaptability and resilience": 0.0
-        }
+The candidate has answered the question as follows: {answer}. Based on the answers provided, give me the metrics related to:
+Communication skills, Teamwork and collaboration, Problem-solving and critical thinking, Time management and organization,
+Adaptability and resilience.
+Rules for rating:
+- Rate each skill from 0 to 10
+- If the answer is empty, 'Sorry could not recognize your voice', meaningless, or irrelevant: rate all skills as 0
+- Only provide numeric ratings without any additional text or '/10'
+- Ratings must reflect actual content quality - do not give courtesy points
+- Consider answer relevance to the specific skill being rated
+Format:
+Communication skills: [rating]
+Teamwork and collaboration: [rating]
+Problem-solving and critical thinking: [rating]
+Time management and organization: [rating]
+Adaptability and resilience: [rating]"""
+    
+    success, result = safe_generate_content(text_model, text, "Could not generate metrics.")
+    if not success:
+        print(f"Metrics generation failed: {result}")
+        return default_metrics
+
+    metrics = {}
+    metrics_text = result.strip()
+    for line in metrics_text.split('\n'):
+        if ':' in line:
+            key, value_str = line.split(':', 1)
+            key = key.strip()
+            try:
+                value_clean = value_str.strip().split()[0]
+                value = float(value_clean)
+                metrics[key] = value
+            except (ValueError, IndexError):
+                metrics[key] = 0.0
+    
+    # Ensure all expected keys exist
+    expected_metrics = [
+        "Communication skills", "Teamwork and collaboration",
+        "Problem-solving and critical thinking", "Time management and organization",
+        "Adaptability and resilience"
+    ]
+    for m in expected_metrics:
+        if m not in metrics:
+            metrics[m] = 0.0
+    
+    return metrics
+
 
 def getmetrics(interaction, resume, text_model):
     """Gets overall metrics from AI based on interaction."""
     interaction_text = "\n".join([f"{q}: {a}" for q, a in interaction.items()])
     text = f"""This is the user's resume: {resume}.
-    And here is the interaction of the interview: {interaction_text}.
-    Please evaluate the interview based on the interaction and the resume.
-    Rate me the following metrics on a scale of 1 to 10. 1 being the lowest and 10 being the highest.
-    Communication skills, Teamwork and collaboration, Problem-solving and critical thinking,
-    Time management and organization, Adaptability and resilience. Just give the ratings for the metrics.
-    I do not need the feedback. Just the ratings in the format:
-    Communication skills: X
-    Teamwork and collaboration: Y
-    Problem-solving and critical thinking: Z
-    Time management and organization: A
-    Adaptability and resilience: B
-    """
-    try:
-        response = text_model.generate_content(text)
-        response.resolve()
-        return response.text
-    except Exception as e:
-        print(f"Error fetching metrics from AI in interview_logic: {e}")
-        return ""
+And here is the interaction of the interview: {interaction_text}.
+Please evaluate the interview based on the interaction and the resume.
+Rate me the following metrics on a scale of 1 to 10. 1 being the lowest and 10 being the highest.
+Communication skills, Teamwork and collaboration, Problem-solving and critical thinking,
+Time management and organization, Adaptability and resilience. Just give the ratings for the metrics.
+I do not need the feedback. Just the ratings in the format:
+Communication skills: X
+Teamwork and collaboration: Y
+Problem-solving and critical thinking: Z
+Time management and organization: A
+Adaptability and resilience: B
+"""
+    success, result = safe_generate_content(text_model, text, "Could not fetch final metrics.")
+    if not success:
+        print(f"Final metrics fetch failed: {result}")
+        return "" # Return empty string, parser will handle it
+    return result
+
 
 def parse_metrics(metric_text):
     """Parses raw metric text into a dictionary."""
@@ -326,6 +364,7 @@ def parse_metrics(metric_text):
             else:
                 metrics[key] = 0
     return metrics
+
 
 def create_metrics_chart(metrics_dict):
     """Creates a pie chart image from metrics."""
@@ -358,6 +397,7 @@ def create_metrics_chart(metrics_dict):
         buf.seek(0)
         plt.close(fig)
         return buf
+
 
 def generate_evaluation_report(metrics_data, average_rating, feedback_list, interaction_dict):
     """Generates a formatted evaluation report."""
@@ -396,8 +436,8 @@ def generate_evaluation_report(metrics_data, average_rating, feedback_list, inte
         print(error_msg)
         return error_msg
 
+
 # --- Interview State Management Functions ---
-# These functions operate on the interview_state dictionary
 
 def process_resume_logic(file_obj):
     """Handles resume upload and processing logic."""
@@ -469,72 +509,6 @@ def process_resume_logic(file_obj):
             }
         }
 
-# def start_interview_logic(roles, processed_resume_data, text_model):
-#     """Starts the interview process logic."""
-#     if not roles or (isinstance(roles, list) and not any(roles)) or not processed_resume_data or not processed_resume_data.strip():
-#         return {
-#             "status": "Please select a role and ensure resume is processed.",
-#             "initial_question": "",
-#             "interview_state": {},
-#             "ui_updates": {
-#                 "audio_input": "gr_show",        # show recording for Q1
-#                 "submit_answer_btn": "gr_show",  # show submit for Q1
-#                 "next_question_btn": "gr_hide",  # hidden — must submit first
-#                 "submit_interview_btn": "gr_hide",
-#                 "feedback_display": "gr_hide",
-#                 "metrics_display": "gr_hide",
-#                 "question_display": "gr_show",
-#                 "answer_instructions": "gr_show"
-#             }
-#         }
-#     try:
-#         questions = generate_questions(roles, processed_resume_data, text_model)
-#         default_questions = [
-#             "Could you please introduce yourself based on your resume?",
-#             "What are your key technical skills relevant to this role?",
-#             "Describe a challenging project you've worked on and how you handled it.",
-#             "Where do you see yourself in 5 years?",
-#             "Do you have any questions for us?"
-#         ]
-#         while len(questions) < 5:
-#             questions.append(default_questions[len(questions)])
-#         questions = questions[:5]  # cap at 5
-        
-#         initial_question = questions[0]
-#         interview_state = {
-#             "questions": questions,
-#             "current_q_index": 0,
-#             "answers": [],
-#             "feedback": [],
-#             "interactions": {},
-#             "metrics_list": [],
-#             "resume_data": processed_resume_data,
-#             "selected_roles": roles # Store roles for history
-#         }
-#         return {
-#             "status": "Interview started. Please answer the first question.",
-#             "initial_question": initial_question,
-#             "interview_state": interview_state,
-#             "ui_updates": {
-#                 "audio_input": "gr_show", "submit_answer_btn": "gr_show", "next_question_btn": "gr_hide",
-#                 "submit_interview_btn": "gr_hide", "feedback_display": "gr_hide", "metrics_display": "gr_hide",
-#                 "question_display": "gr_show", "answer_instructions": "gr_show"
-#             }
-#         }
-#     except Exception as e:
-#         error_msg = f"Error starting interview in interview_logic: {str(e)}"
-#         print(error_msg)
-#         return {
-#             "status": error_msg,
-#             "initial_question": "",
-#             "interview_state": {},
-#             "ui_updates": {
-#                 "audio_input": "gr_hide", "submit_answer_btn": "gr_hide", "next_question_btn": "gr_hide",
-#                 "submit_interview_btn": "gr_hide", "feedback_display": "gr_hide", "metrics_display": "gr_hide",
-#                 "question_display": "gr_hide", "answer_instructions": "gr_hide"
-#             }
-#         }
-
 
 def start_interview_logic(roles, processed_resume_data, text_model):
     """Starts the interview process logic."""
@@ -542,7 +516,7 @@ def start_interview_logic(roles, processed_resume_data, text_model):
         return {
             "status": "Please select a role and ensure resume is processed.",
             "initial_question": "",
-            "all_questions": "",  # New field for all questions
+            "all_questions": "",
             "interview_state": {},
             "ui_updates": {
                 "audio_input": "gr_show",
@@ -617,6 +591,8 @@ def start_interview_logic(roles, processed_resume_data, text_model):
                 "answer_instructions": "gr_hide"
             }
         }
+
+
 def submit_answer_logic(audio, interview_state, text_model):
     """Handles submitting an answer via audio logic."""
     if not audio or not interview_state:
@@ -670,8 +646,8 @@ def submit_answer_logic(audio, interview_state, text_model):
             "ui_updates": {
                 "feedback_display": "gr_show_and_update",
                 "metrics_display": "gr_show_and_update",
-                "audio_input": "gr_hide",          # hide until Next is clicked
-                "submit_answer_btn": "gr_hide",    # hide until Next is clicked
+                "audio_input": "gr_hide",
+                "submit_answer_btn": "gr_hide",
                 "next_question_btn": "gr_hide" if is_last_question else "gr_show",
                 "submit_interview_btn": "gr_show" if is_last_question else "gr_hide",
                 "question_display": "gr_show",
@@ -692,6 +668,7 @@ def submit_answer_logic(audio, interview_state, text_model):
                 "submit_interview_btn": "gr_hide", "question_display": "gr_show", "answer_instructions": "gr_show"
             }
         }
+
 
 def next_question_logic(interview_state):
     """Moves to the next question or ends the interview logic."""
@@ -735,11 +712,12 @@ def next_question_logic(interview_state):
             "interview_state": interview_state,
             "ui_updates": {
                 "audio_input": "gr_hide", "submit_answer_btn": "gr_hide", "next_question_btn": "gr_hide",
-                "feedback_display": "gr_hide", "metrics_display": "gr_hide", "submit_interview_btn": "gr_show", # Show submit button
+                "feedback_display": "gr_hide", "metrics_display": "gr_hide", "submit_interview_btn": "gr_show",
                 "question_display": "gr_show", "answer_instructions": "gr_hide",
                 "answer_display": "gr_clear", "metrics_display_clear": "gr_clear"
             }
         }
+
 
 def submit_interview_logic(interview_state, text_model):
     """Handles final submission, triggers evaluation, prepares results logic."""
@@ -759,7 +737,6 @@ def submit_interview_logic(interview_state, text_model):
         resume_data = interview_state.get("resume_data", "")
         feedback_list = interview_state.get("feedback", [])
         metrics_history = interview_state.get("metrics_list", [])
-        # selected_roles = interview_state.get("selected_roles", []) # Not used here directly
 
         if not interactions:
             error_msg = "No interview interactions found to evaluate."
@@ -788,7 +765,7 @@ def submit_interview_logic(interview_state, text_model):
 
         return {
             "status": "Evaluation Complete! See your results below.",
-            "interview_state": interview_state, # Pass through
+            "interview_state": interview_state,
             "report_text": report_text,
             "chart_buffer": chart_buffer,
             "ui_updates": {
@@ -809,5 +786,3 @@ def submit_interview_logic(interview_state, text_model):
                 "evaluation_report_display": "gr_show_and_update_error", "evaluation_chart_display": "gr_hide"
             }
         }
-
-# Add similar logic functions for chat if needed, or keep chat in its own module.
