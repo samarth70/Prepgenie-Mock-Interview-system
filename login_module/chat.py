@@ -172,9 +172,9 @@ def chat_with_resume(query, resume_data, history):
     try:
         answer = get_answer(query, resume_data)
         
-        # Append user message (dictionary format)
+        # Append user message (dictionary format for type="messages")
         current_history.append({"role": "user", "content": query})
-        # Append assistant message (dictionary format)
+        # Append assistant message (dictionary format for type="messages")
         current_history.append({"role": "assistant", "content": answer})
         
         return "", current_history
