@@ -1,0 +1,7 @@
+fastapi
+httpx
+pypdf2
+pydantic
+python-dotenv
+# Cloudflare Python Workers handle these via their runtime environment
+# No external AI SDKs (google-genai, groq, etc.) needed as we use direct REST.

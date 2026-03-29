@@ -158,7 +158,7 @@ def generate_feedback(question, answer):
 
 
 def generate_questions(roles, data, text_model):
-    """Generates 5 interview questions based on resume and roles."""
+    """Generates exactly 5 interview questions based on resume and roles."""
     default_questions = [
         "Could you please introduce yourself based on your resume?",
         "What are your key technical skills relevant to this role?",
@@ -168,7 +168,7 @@ def generate_questions(roles, data, text_model):
     ]
 
     if not roles or (isinstance(roles, list) and not any(roles)) or not data or not data.strip():
-        return default_questions
+        return default_questions.copy()
 
     if isinstance(roles, list):
         roles_str = ", ".join(roles)
@@ -200,28 +200,62 @@ Example format (do not copy these, generate your own):
 5. Where do you see your career heading in the next 3 to 5 years?"""
 
     success, result = safe_generate_content(text_model, text, "Could not generate questions.")
-    
+
     if not success:
         print(f"Using fallback questions due to: {result}")
-        # Return default questions with the warning as the first item so user sees it
-        return [f"⚠️ {result}"] + default_questions[:4]
+        return default_questions.copy()
 
-    # Parse the successful result
+    # Parse the successful result - multiple strategies
     questions_text = result.strip()
+    questions = []
+    
+    # Strategy 1: Extract numbered questions (1. or 1)
     questions = re.findall(r'^\d+[\.\)]\s*(.+)', questions_text, re.MULTILINE)
-    questions = [q.strip() for q in questions if q.strip()]
-
-    # Fallback: split by newline if numbered parsing fails
-    if len(questions) < 3:
-        questions = [q.strip() for q in questions_text.split('\n') if q.strip() and '?' in q]
+    questions = [q.strip() for q in questions if q.strip() and '?' in q]
+    
+    # Strategy 2: If numbered parsing fails, split by newlines and find questions
+    if len(questions) < 5:
+        lines = questions_text.split('\n')
+        for line in lines:
+            line = line.strip()
+            # Remove leading numbers/bullets
+            line = re.sub(r'^[\d\.\-\*\•]+\s*', '', line)
+            if line and '?' in line and line not in questions:
+                questions.append(line)
+    
+    # Strategy 3: Find all sentences ending with question marks
+    if len(questions) < 5:
+        all_questions = re.findall(r'([A-Z][^?.]+[?])', questions_text)
+        for q in all_questions:
+            q = q.strip()
+            if q and q not in questions:
+                questions.append(q)
 
     print(f"Generated {len(questions)} questions: {questions}")
 
-    # Pad with defaults if AI returned fewer than 5
-    while len(questions) < 5:
-        questions.append(default_questions[len(questions)])
-
-    return questions[:5]
+    # Ensure exactly 5 questions by padding with defaults
+    final_questions = []
+    for i in range(5):
+        if i < len(questions):
+            final_questions.append(questions[i])
+        else:
+            # Add default questions that aren't already in the list
+            for default_q in default_questions:
+                if default_q not in final_questions:
+                    final_questions.append(default_q)
+                    break
+    
+    # Final safety check - ensure we have exactly 5
+    while len(final_questions) < 5:
+        for default_q in default_questions:
+            if default_q not in final_questions:
+                final_questions.append(default_q)
+                if len(final_questions) == 5:
+                    break
+        if len(final_questions) < 5:
+            break
+    
+    return final_questions[:5]
 
 
 def generate_overall_feedback(data, percent, answer, question, text_model):
@@ -513,7 +547,7 @@ def process_resume_logic(file_obj):
         }
 
 def start_interview_logic(roles, processed_resume_data, text_model):
-    """Starts the interview process logic."""
+    """Starts the interview process logic with exactly 5 questions."""
     if not roles or (isinstance(roles, list) and not any(roles)) or not processed_resume_data or not processed_resume_data.strip():
         return {
             "status": "Please select a role and ensure resume is processed.",
@@ -531,21 +565,33 @@ def start_interview_logic(roles, processed_resume_data, text_model):
             }
         }
     try:
+        # Generate exactly 5 questions
         questions = generate_questions(roles, processed_resume_data, text_model)
+        
+        # Ensure we have exactly 5 questions (safety check)
         default_questions = [
             "Could you please introduce yourself based on your resume?",
             "What are your key technical skills relevant to this role?",
             "Describe a challenging project you've worked on and how you handled it.",
-            "Where do you see yourself in 5 years?",
-            "Do you have any questions for us?"
+            "How do you prioritize tasks when working under tight deadlines?",
+            "Where do you see yourself professionally in the next 3 to 5 years?"
         ]
-        while len(questions) < 5:
-            questions.append(default_questions[len(questions)])
-        questions = questions[:5]  # cap at 5
         
+        # If for some reason we don't have 5, pad with defaults
+        if len(questions) < 5:
+            for dq in default_questions:
+                if dq not in questions:
+                    questions.append(dq)
+                    if len(questions) == 5:
+                        break
+        
+        questions = questions[:5]  # Ensure exactly 5
+        
+        print(f"Starting interview with {len(questions)} questions: {questions}")
+
         # Show ONLY the first question (not all 5)
         initial_question = questions[0]
-        
+
         interview_state = {
             "questions": questions,
             "current_q_index": 0,
@@ -554,20 +600,21 @@ def start_interview_logic(roles, processed_resume_data, text_model):
             "interactions": {},
             "metrics_list": [],
             "resume_data": processed_resume_data,
-            "selected_roles": roles
+            "selected_roles": roles,
+            "total_questions": 5  # Explicitly track total
         }
         return {
-            "status": f"Interview started. Question 1 of {len(questions)}",
+            "status": f"Interview started. Question 1 of 5",
             "initial_question": initial_question,  # Only first question
             "interview_state": interview_state,
             "ui_updates": {
-                "audio_input": "gr_show", 
-                "submit_answer_btn": "gr_show", 
+                "audio_input": "gr_show",
+                "submit_answer_btn": "gr_show",
                 "next_question_btn": "gr_hide",
-                "submit_interview_btn": "gr_hide", 
-                "feedback_display": "gr_hide", 
+                "submit_interview_btn": "gr_hide",
+                "feedback_display": "gr_hide",
                 "metrics_display": "gr_hide",
-                "question_display": "gr_show", 
+                "question_display": "gr_show",
                 "answer_instructions": "gr_show"
             }
         }
@@ -592,13 +639,22 @@ def start_interview_logic(roles, processed_resume_data, text_model):
 
 def submit_answer_logic(audio, interview_state, text_model):
     """Handles submitting an answer via audio logic."""
+    # Default metrics that should always be returned
+    default_metrics = {
+        "Communication skills": 0.0,
+        "Teamwork and collaboration": 0.0,
+        "Problem-solving and critical thinking": 0.0,
+        "Time management and organization": 0.0,
+        "Adaptability and resilience": 0.0
+    }
+    
     if not audio or not interview_state:
         return {
             "status": "No audio recorded or interview not started.",
             "answer_text": "",
-            "interview_state": interview_state,
+            "interview_state": interview_state if interview_state else {},
             "feedback_text": "",
-            "metrics": {},
+            "metrics": default_metrics,
             "ui_updates": {
                 "feedback_display": "gr_hide", "metrics_display": "gr_hide",
                 "audio_input": "gr_show", "submit_answer_btn": "gr_show", "next_question_btn": "gr_hide",
@@ -617,23 +673,32 @@ def submit_answer_logic(audio, interview_state, text_model):
         print(f"Recognized Answer: {answer_text}")
         os.remove(audio_file_path)
         os.rmdir(temp_dir)
+        
         interview_state["answers"].append(answer_text)
         current_q_index = interview_state["current_q_index"]
         current_question = interview_state["questions"][current_q_index]
         interview_state["interactions"][f"Q{current_q_index + 1}: {current_question}"] = f"A{current_q_index + 1}: {answer_text}"
+        
         percent_str = generate_feedback(current_question, answer_text)
         try:
             percent = float(percent_str)
         except ValueError:
             percent = 0.0
+            
         feedback_text = generate_overall_feedback(interview_state["resume_data"], percent_str, answer_text, current_question, text_model)
         interview_state["feedback"].append(feedback_text)
+        
+        # Get metrics - ensure it's never empty
         metrics = generate_metrics(interview_state["resume_data"], answer_text, current_question, text_model)
+        if not metrics or len(metrics) == 0:
+            metrics = default_metrics.copy()
+        
         interview_state["metrics_list"].append(metrics)
         interview_state["current_q_index"] += 1
-        total_questions = len(interview_state["questions"])
-        is_last_question = interview_state["current_q_index"] >= total_questions
         
+        total_questions = interview_state.get("total_questions", 5)
+        is_last_question = interview_state["current_q_index"] >= total_questions
+
         return {
             "status": f"Answer submitted! {'All questions answered — click Submit Interview.' if is_last_question else 'Click Next Question to continue.'}",
             "answer_text": answer_text,
@@ -653,12 +718,14 @@ def submit_answer_logic(audio, interview_state, text_model):
         }
     except Exception as e:
         print(f"Error processing audio answer in interview_logic: {e}")
+        import traceback
+        traceback.print_exc()
         return {
             "status": "Error processing audio. Please try again.",
             "answer_text": "",
-            "interview_state": interview_state,
+            "interview_state": interview_state if interview_state else {},
             "feedback_text": "",
-            "metrics": {},
+            "metrics": default_metrics,
             "ui_updates": {
                 "feedback_display": "gr_hide", "metrics_display": "gr_hide",
                 "audio_input": "gr_show", "submit_answer_btn": "gr_show", "next_question_btn": "gr_show",

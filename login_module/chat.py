@@ -5,16 +5,77 @@ import os
 import PyPDF2
 import google.generativeai as genai
 from dotenv import load_dotenv
+import time
 
 # Load environment variables
 load_dotenv()
 
-# Configure Generative AI (Ensure model name is correct)
-# Note: 'gemini-2.5-flash' might need verification. Common ones are 'gemini-1.5-flash', 'gemini-pro'.
+# Configure Generative AI - Using correct model name with fallback
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-text_model = genai.GenerativeModel("gemini-2.0-flash") # Potentially incorrect model name
-# text_model = genai.GenerativeModel("gemini-1.5-flash") # Using a known model name
-# print("Using Generative AI model for chat: gemini-1.5-flash")
+
+# Safe model initialization with fallback
+def initialize_model():
+    """Initialize Gemini model with error handling and fallback chain."""
+    try:
+        # Try Gemini 2.0 Flash Experimental first
+        model = genai.GenerativeModel("gemini-2.0-flash-exp")
+        print("✅ Using Gemini 2.0 Flash Experimental for chat")
+        return model
+    except Exception as e:
+        print(f"⚠️ Gemini 2.0 not available: {e}")
+        try:
+            # Fallback to Gemini 1.5 Flash
+            model = genai.GenerativeModel("gemini-1.5-flash")
+            print("✅ Using Gemini 1.5 Flash for chat")
+            return model
+        except Exception as e2:
+            print(f"⚠️ Gemini 1.5 not available: {e2}")
+            # Final fallback to gemini-pro
+            model = genai.GenerativeModel("gemini-pro")
+            print("✅ Using Gemini Pro (fallback) for chat")
+            return model
+
+text_model = initialize_model()
+
+# Rate limiting helper
+_last_api_call = 0
+_min_call_interval = 1.0  # seconds between API calls
+
+def rate_limited_generate(model, prompt, max_retries=3):
+    """Make rate-limited API calls with exponential backoff."""
+    global _last_api_call
+    
+    if not model:
+        return "AI model not available. Please check your API configuration."
+    
+    for attempt in range(max_retries):
+        try:
+            # Enforce rate limiting
+            elapsed = time.time() - _last_api_call
+            if elapsed < _min_call_interval:
+                time.sleep(_min_call_interval - elapsed)
+            
+            response = model.generate_content(prompt)
+            response.resolve()
+            _last_api_call = time.time()
+            return response.text
+        except Exception as e:
+            error_str = str(e).lower()
+            if "429" in error_str or "quota" in error_str or "rate limit" in error_str:
+                print(f"Rate limit hit (attempt {attempt + 1}/{max_retries})")
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)  # Exponential backoff
+                    continue
+                return "API rate limit exceeded. Please wait a moment and try again."
+            elif "403" in error_str or "permission" in error_str:
+                return "API access denied. Please check your API key."
+            else:
+                print(f"API error: {e}")
+                if attempt < max_retries - 1:
+                    continue
+                return "Service temporarily unavailable. Please try again."
+    
+    return "Service unavailable after multiple attempts."
 
 
 def file_processing_chat(pdf_file_path_string): # Expect the file path string directly
@@ -53,41 +114,39 @@ def getallinfo_chat(data):
     """Formats resume data."""
     if not data or not data.strip():
         return "No resume data provided or data is empty."
+    
+    if not text_model:
+        return "AI model not available. Please check your API configuration."
 
     text = f"""{data} is given by the user. Make sure you are getting the details like name, experience,
             education, skills of the user like in a resume. If the details are not provided return: not a resume.
             If details are provided then please try again and format the whole in a single paragraph covering all the information. """
-    try:
-        # Use the correct model instance
-        response = text_model.generate_content(text)
-        response.resolve()
-        return response.text
-    except Exception as e:
-        print(f"Error formatting resume data: {e}")
-        return "Error processing resume data."
+    
+    result = rate_limited_generate(text_model, text)
+    return result if result else "Error processing resume data."
 
 
 def get_answer(question, input_text):
     """Generates answer/suggestions based on the question and resume text."""
     # Handle empty inputs
-    if not question or not question.strip() or not input_text or not input_text.strip():
-        return "Please provide a question and ensure your resume is processed."
+    if not question or not question.strip():
+        return "Please provide a question."
+    if not input_text or not input_text.strip():
+        return "Please upload and process your resume first."
+    
+    if not text_model:
+        return "AI model not available. Please check your API configuration."
 
     text = f"""You are a Great Resume Checker, you are given the details about the user and the user
             needs some changes about their resume and you are the one to guide them.
-            There are queries which user wants to be solved about their resume. You are asked a question which is: {question} and
+            There are queries which users wants to be solved about their resume. You are asked a question which is: {question} and
             you have to generate suggestions to improve the resume based on the text: {input_text}. Answer in a way that the user
             can understand and make the changes in their resume. and In paragraph form. maximum of 2 paragraphs. dont tell over the top.
             it should be less and precise. dont tell the user to change the whole resume. just give them some suggestions. dont give
             bullet points. Be point to point with user."""
-    try:
-        # Use the correct model instance
-        response = text_model.generate_content(text)
-        response.resolve()
-        return response.text
-    except Exception as e:
-        print(f"Error generating answer: {e}")
-        return "Sorry, I couldn't generate an answer at the moment."
+    
+    result = rate_limited_generate(text_model, text)
+    return result if result else "Sorry, I couldn't generate an answer at the moment."
 
 
 # --- Gradio Chat Interface Functions ---

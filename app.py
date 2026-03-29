@@ -146,9 +146,9 @@ def next_question_handler(interview_state):
         ui_updates.get("metrics_display_clear", {}) 
     )
 
-def submit_interview_handler(interview_state, session_history):
+def submit_interview_handler(interview_state, session_history_state):
     result = interview_logic.submit_interview_logic(interview_state, TEXT_MODEL)
-    
+
     # Save to session history if evaluation succeeded
     if result.get("report_text") and interview_state:
         import datetime
@@ -157,9 +157,10 @@ def submit_interview_handler(interview_state, session_history):
             "selected_roles": interview_state.get("selected_roles", []),
             "interactions": interview_state.get("interactions", {}),
             "feedback": interview_state.get("feedback", []),
-            "average_rating": sum(interview_state.get("metrics_list", [{}])[0].values()) / 5 if interview_state.get("metrics_list") else 0.0
+            "metrics_list": interview_state.get("metrics_list", []),
+            "average_rating": sum(interview_state.get("metrics_list", [{}])[0].values()) / 5 if interview_state.get("metrics_list") and len(interview_state.get("metrics_list", [{}])[0]) > 0 else 0.0
         }
-        session_history = interview_history.save_interview_history(session_history, record)
+        session_history_state = interview_history.save_interview_history(session_history_state, record)
 
     ui_updates = apply_ui_updates(result["ui_updates"])
 
@@ -177,10 +178,10 @@ def submit_interview_handler(interview_state, session_history):
 
     return (
         result["status"],
-        result["interview_state"], 
+        result["interview_state"],
         report_update,
         chart_update,
-        session_history
+        session_history_state
     )
 
 # --- Chat Module Functions ---
@@ -275,8 +276,11 @@ with gr.Blocks(title="PrepGenie - Mock Interviewer") as demo:
                 # --- History Section ---
                 with gr.Column(visible=False) as history_selection:
                     gr.Markdown("## Your Interview History")
-                    load_history_btn = gr.Button("Load My Past Interviews")
-                    history_output = gr.Textbox(label="Past Interviews", max_lines=30, interactive=False, visible=True)
+                    with gr.Row():
+                        load_history_btn = gr.Button("Load My Past Interviews", variant="secondary")
+                        clear_history_btn = gr.Button("Clear History", variant="stop")
+                    history_stats = gr.JSON(label="Your Statistics", visible=False)
+                    history_output = gr.Markdown(label="Past Interviews", visible=True)
 
     # --- Event Listeners for Navigation ---
     mock_interview_btn.click(
@@ -371,24 +375,23 @@ with gr.Blocks(title="PrepGenie - Mock Interviewer") as demo:
         )
 
     # --- Event Listener for History ---
-    def load_user_history_local(interview_history_state):
-        if not interview_history_state:
-            return "No interview history found for this session."
+    def load_user_history_local(session_history):
+        # First try session history, then file-based
+        if not session_history:
+            session_history = interview_history.load_history_from_file()
+        
+        if not session_history:
+            return "No interview history found. Complete a mock interview to see it here!", {}
+        
         output_text = "**Your Recent Mock Interviews:**\n\n"
-        for idx, record in enumerate(interview_history_state):
+        for idx, record in enumerate(reversed(session_history)):
             timestamp = record.get('timestamp', 'Unknown Time')
-            try:
-                dt = datetime.datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-                formatted_time = dt.strftime("%Y-%m-%d %H:%M:%S")
-            except Exception as e:
-                print(f"Error parsing timestamp {timestamp}: {e}")
-                formatted_time = timestamp
-
-            roles = ", ".join(record.get('selected_roles', ['N/A']))
-            avg_rating = record.get('average_rating', 'N/A')
-            output_text += f"--- **Interview #{len(interview_history_state) - idx} ({formatted_time})** ---\n"
+            roles = ", ".join(record.get('selected_roles', ['N/A'])) if isinstance(record.get('selected_roles'), list) else str(record.get('selected_roles', 'N/A'))
+            avg_rating = record.get('average_rating', 0.0)
+            
+            output_text += f"--- **Interview #{len(session_history) - idx} ({timestamp})** ---\n"
             output_text += f"**Roles Applied:** {roles}\n"
-            output_text += f"**Average Rating:** {avg_rating:.2f}\n\n"
+            output_text += f"**Average Rating:** {avg_rating:.2f}/10\n\n"
 
             interactions = record.get('interactions', {})
             if interactions:
@@ -408,15 +411,26 @@ with gr.Blocks(title="PrepGenie - Mock Interviewer") as demo:
                  output_text += "**Details:** Not available.\n"
             output_text += "\n---\n\n"
 
-        return output_text
+        # Calculate statistics
+        stats = interview_history.get_history_statistics(session_history)
+        return output_text, stats
 
-    def load_history_handler(session_history):
-        return interview_history.format_history_for_display(session_history)
-    
+    def clear_history_handler(session_history):
+        success = interview_history.clear_history()
+        if success:
+            return [], "Interview history cleared successfully!", {}
+        return session_history, "Failed to clear history.", {}
+
     load_history_btn.click(
-        fn=load_history_handler,
+        fn=load_user_history_local,
         inputs=[session_history_state],
-        outputs=[history_output]
+        outputs=[history_output, history_stats]
+    )
+    
+    clear_history_btn.click(
+        fn=clear_history_handler,
+        inputs=[session_history_state],
+        outputs=[session_history_state, history_output, history_stats]
     )
 
 if __name__ == "__main__":

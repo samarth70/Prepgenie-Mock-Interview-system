@@ -1,0 +1,9 @@
+# PrepGenie Backend - AgentScope Edition
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+pydantic==2.5.3
+PyPDF2==3.0.1
+python-dotenv==1.0.0
+pydantic-settings==2.1.0
+agentscope>=1.0.0
