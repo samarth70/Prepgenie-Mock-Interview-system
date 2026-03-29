@@ -21,7 +21,3 @@ services:
         sync: false
       - key: CORS_ORIGINS
         value: https://prepgenie.onrender.com,http://localhost:3000,http://localhost:5173
-    disk:
-      name: interview-data
-      mountPath: /opt/render/project/src/data
-      sizeGB: 1
