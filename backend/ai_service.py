@@ -629,6 +629,71 @@ IMPORTANT: Vary scores based on actual answer quality. Short answers get 2-4. De
         return _fallback_evaluation(interactions, roles)
 
 
+def _scrub(text: str) -> str:
+    """Remove anything key-shaped from text before it leaves the server.
+
+    Provider errors sometimes echo the request back. This endpoint is public and
+    unauthenticated, so nothing credential-shaped may appear in its output.
+    """
+    if not text:
+        return ""
+    scrubbed = re.sub(r'(gsk_|AIza|sk-or-v1-|sk-|hf_)[A-Za-z0-9_\-]{8,}', r'\1<redacted>', text)
+    return scrubbed[:200]
+
+
+async def probe_providers(env=None) -> Dict[str, Any]:
+    """Call every configured provider with a tiny prompt and report what happened.
+
+    A healthy chat response does not prove the whole chain is healthy: providers are
+    tried in order, so a working primary completely masks a dead secondary. This
+    exercises each one independently. Reports latency and errors, never key material.
+    """
+    import time
+
+    google_key = _get_secret(env, "GOOGLE_API_KEY")
+    groq_key = _get_secret(env, "GROQ_API_KEY")
+    openrouter_key = _get_secret(env, "OPEN_ROUTER_API") or _get_secret(env, "OPENROUTER_API_KEY")
+
+    checks = [
+        ("gemini", google_key, _generate_gemini),
+        ("groq", groq_key, _generate_groq),
+        ("openrouter", openrouter_key, _generate_openrouter),
+    ]
+
+    results = {}
+    for name, key, fn in checks:
+        if not key:
+            results[name] = {"configured": False, "ok": False, "detail": "no key set"}
+            continue
+        started = time.time()
+        try:
+            text = await fn(
+                key, "Reply with the single word: OK",
+                "You are a health check. Answer in one word.", 0.0, 32,
+            )
+            ok = bool((text or "").strip())
+            results[name] = {
+                "configured": True,
+                "ok": ok,
+                "detail": "responded" if ok else "empty response",
+                "chars": len(text or ""),
+                "seconds": round(time.time() - started, 2),
+            }
+        except Exception as exc:
+            results[name] = {
+                "configured": True,
+                "ok": False,
+                "detail": _scrub(str(exc)),
+                "seconds": round(time.time() - started, 2),
+            }
+
+    healthy = [n for n, r in results.items() if r.get("ok")]
+    return {
+        "providers": results,
+        "healthy": healthy,
+        "any_healthy": bool(healthy),
+    }
+
 async def chat_with_resume(resume_text: str, query: str, **kwargs) -> Dict[str, Any]:
     """Chat with resume content."""
     # The resume is user-uploaded and the question is free text, so both are

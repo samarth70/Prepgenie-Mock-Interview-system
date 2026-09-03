@@ -51,8 +51,9 @@ async def on_fetch(request, env):
     # Routing
     url = request.url
     path = "/" + "/".join(url.split("/")[3:])
+    query = ""
     if "?" in path:
-        path = path.split("?")[0]
+        path, query = path.split("?", 1)
 
     try:
         # Root / Health
@@ -89,6 +90,11 @@ async def on_fetch(request, env):
                 # _provider_status holds datetime objects in cooldown_until, which
                 # json.dumps cannot serialize - that made /health return HTTP 500, so
                 # the one endpoint reporting why generation fails was itself unreadable.
+                # ?debug=providers actually calls each provider. Without it a healthy
+                # primary hides a dead secondary, which is how a broken Groq key sat
+                # unnoticed behind a working Gemini.
+                "provider_probe": (await ai_service.probe_providers(env)
+                                   if "debug=providers" in query else None),
                 "provider_status": {
                     name: {k: (v.isoformat() if hasattr(v, 'isoformat') else v)
                            for k, v in state.items()}
