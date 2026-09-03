@@ -84,3 +84,11 @@ backend/.wrangler/
 
 # Interview history data (optional - keep if you want to persist locally)
 # interview_history_data.json
+
+# Env files. frontend/.env was tracked while holding live GROQ/GOOGLE/OPENROUTER
+# keys - one `git add -A` from publishing them to a public repo.
+.env
+.env.*
+!.env.example
+frontend/.env
+backend/.env

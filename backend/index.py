@@ -316,13 +316,39 @@ async def handle_clear_history(request, env):
     # Stubbed since history is fully private and cleared entirely on the client-side
     return await _json_response(request, env, {"success": True, "message": "History cleared locally"})
 
+# Generous enough for a long CV and a detailed question, small enough that this
+# cannot be used as a free general-purpose LLM endpoint for arbitrary payloads.
+MAX_RESUME_CHARS = 40000
+MAX_QUERY_CHARS = 2000
+
+
 async def handle_chat_with_resume(request, env):
     body = (await request.json()).to_py()
     resume_text = body.get("resume_text", "")
     query = body.get("query", "")
 
+    if not isinstance(resume_text, str) or not isinstance(query, str):
+        return await _json_response(request, env, {
+            "error": "resume_text and query must be strings"}, status=400)
+
+    query = query.strip()
+    if not query:
+        return await _json_response(request, env, {
+            "error": "A question is required."}, status=400)
+
+    if len(query) > MAX_QUERY_CHARS:
+        return await _json_response(request, env, {
+            "error": f"Question too long ({len(query)} chars). Limit is {MAX_QUERY_CHARS}."},
+            status=413)
+
+    if len(resume_text) > MAX_RESUME_CHARS:
+        return await _json_response(request, env, {
+            "error": f"Resume too long ({len(resume_text)} chars). Limit is {MAX_RESUME_CHARS}."},
+            status=413)
+
     result = await ai_service.chat_with_resume(resume_text, query, env=env)
-    return await _json_response(request, env, result)
+    status = 200 if result.get("success") else 502
+    return await _json_response(request, env, result, status=status)
 
 # ─── Helpers ───
 
@@ -333,10 +359,38 @@ async def _json_response(request, env, data, status=200):
     return _cors_response(request, env, resp)
 
 def _cors_response(request, env, response):
-    # TEMPORARY RELAXED CORS FOR DEBUGGING
-    response.headers.set("Access-Control-Allow-Origin", "*")
+    """Echo the Origin only when it is on the allowlist.
+
+    This previously returned Access-Control-Allow-Origin: * with a note saying it
+    was temporary and for debugging. On a public unauthenticated LLM proxy that
+    lets any website on the internet embed these endpoints and spend the account's
+    Gemini/OpenRouter quota. CORS_ORIGINS is already configured as a Worker var.
+    """
     response.headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
     response.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-    # Note: Access-Control-Allow-Credentials cannot be 'true' when using '*'
     response.headers.set("Access-Control-Allow-Credentials", "false")
+    response.headers.set("Vary", "Origin")
+
+    origin = None
+    try:
+        origin = request.headers.get("Origin")
+    except Exception:
+        origin = None
+
+    if not origin:
+        # No Origin at all (curl, server-to-server). CORS is not the control here.
+        response.headers.set("Access-Control-Allow-Origin", "*")
+        return response
+
+    allowed = []
+    try:
+        configured = ai_service._get_secret(env, "CORS_ORIGINS") or ""
+        allowed = [o.strip() for o in configured.split(",") if o.strip()]
+    except Exception:
+        allowed = []
+
+    # Local dev ports are convenient but must never be implied in production.
+    if origin in allowed:
+        response.headers.set("Access-Control-Allow-Origin", origin)
+    # Otherwise the header is deliberately omitted, so the browser blocks the read.
     return response
