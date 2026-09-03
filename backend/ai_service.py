@@ -31,6 +31,32 @@ _provider_status = {
     "openrouter": {"status": "unknown", "last_err": None, "cooldown_until": None},
 }
 
+def _get_secret(env: Any, key_name: str) -> Optional[str]:
+    if not env:
+        return os.getenv(key_name)
+    # 1. Try dictionary access
+    try:
+        val = env[key_name]
+        if val is not None:
+            return str(val).strip()
+    except Exception:
+        pass
+    # 2. Try attribute access
+    try:
+        val = getattr(env, key_name, None)
+        if val is not None:
+            return str(val).strip()
+    except Exception:
+        pass
+    # 3. Try get method
+    try:
+        val = env.get(key_name)
+        if val is not None:
+            return str(val).strip()
+    except Exception:
+        pass
+    return os.getenv(key_name)
+
 async def generate(
     prompt: str,
     *,
@@ -38,6 +64,7 @@ async def generate(
     temperature: float = 0.6,
     max_tokens: int = 2048,
     max_retries: int = 3,
+    env: Any = None,
 ) -> Tuple[bool, str]:
     """
     Generate text via the best available LLM with robust failover.
@@ -49,17 +76,15 @@ async def generate(
     active_providers = []
 
     # We check environment variables here directly or pass them in from main.py's env
-    # For Cloudflare Workers, these will be in the 'env' object.
-    # We'll assume they are available in os.getenv for local/generic use
-    google_key = os.getenv("GOOGLE_API_KEY")
-    groq_key = os.getenv("GROQ_API_KEY")
-    openrouter_key = os.getenv("OPENROUTER_API_KEY")
+    google_key = _get_secret(env, "GOOGLE_API_KEY")
+    groq_key = _get_secret(env, "GROQ_API_KEY")
+    openrouter_key = _get_secret(env, "OPEN_ROUTER_API") or _get_secret(env, "OPENROUTER_API_KEY")
 
-    if google_key and (not _provider_status["gemini"]["cooldown_until"] or now > _provider_status["gemini"]["cooldown_until"]):
+    if google_key:
         active_providers.append(("gemini", _generate_gemini, google_key))
-    if groq_key and (not _provider_status["groq"]["cooldown_until"] or now > _provider_status["groq"]["cooldown_until"]):
+    if groq_key:
         active_providers.append(("groq", _generate_groq, groq_key))
-    if openrouter_key and (not _provider_status["openrouter"]["cooldown_until"] or now > _provider_status["openrouter"]["cooldown_until"]):
+    if openrouter_key:
         active_providers.append(("openrouter", _generate_openrouter, openrouter_key))
 
     if not active_providers:
@@ -68,6 +93,12 @@ async def generate(
     errors = []
     
     for provider_name, fn, key in active_providers:
+        cooldown_until = _provider_status[provider_name]["cooldown_until"]
+        if cooldown_until and now <= cooldown_until:
+            remaining = (cooldown_until - now).seconds
+            errors.append(f"{provider_name.capitalize()} in cooldown ({remaining}s)")
+            continue
+
         backoff_schedule = [2, 5, 10]
 
         for attempt in range(max_retries):
@@ -85,104 +116,321 @@ async def generate(
                 # 429 Rate Limited → Backoff
                 if any(k in err_lower for k in ("429", "rate", "quota")) and "404" not in err_lower:
                     _provider_status[provider_name]["status"] = "rate_limited"
-                    delay = backoff_schedule[attempt] if attempt < len(backoff_schedule) else 15
-                    logger.warning("⏳ %s rate-limited (%d/%d), retrying in %ds", provider_name, attempt+1, max_retries, delay)
-                    await asyncio.sleep(delay)
-                    continue
+                    if attempt < max_retries - 1:
+                        delay = backoff_schedule[attempt] if attempt < len(backoff_schedule) else 15
+                        logger.warning("⏳ %s rate-limited (%d/%d), retrying in %ds", provider_name, attempt+1, max_retries, delay)
+                        await asyncio.sleep(delay)
+                        continue
+                    else:
+                        logger.error("❌ %s rate-limited: all attempts exhausted", provider_name)
+                        _provider_status[provider_name]["cooldown_until"] = datetime.now() + timedelta(seconds=10)
+                        errors.append(f"{provider_name.capitalize()} Rate-Limited (429)")
+                        break
 
-                # 401/403 Auth Error → 5 min cooldown
+                # 401/403 Auth Error → 10s cooldown
                 if any(k in err_lower for k in ("401", "403", "unauthorized", "invalid")):
                     _provider_status[provider_name]["status"] = "blocked"
-                    _provider_status[provider_name]["cooldown_until"] = datetime.now() + timedelta(minutes=5)
-                    logger.error("🔑 %s auth error - cooling down for 5m", provider_name)
+                    _provider_status[provider_name]["cooldown_until"] = datetime.now() + timedelta(seconds=10)
+                    logger.error("🔑 %s auth error - cooling down for 10s", provider_name)
                     errors.append(f"{provider_name.capitalize()} Auth Error")
                     break
 
-                # Other Error → Cool down for 1 min
+                # Other Error → Cool down for 10s
                 logger.error("❌ %s error: %s", provider_name, err_msg)
                 _provider_status[provider_name]["status"] = "error"
-                _provider_status[provider_name]["cooldown_until"] = datetime.now() + timedelta(minutes=1)
-                errors.append(f"{provider_name.capitalize()} error: {err_msg[:50]}...")
+                _provider_status[provider_name]["cooldown_until"] = datetime.now() + timedelta(seconds=10)
+                errors.append(f"{provider_name.capitalize()} error: {err_msg}")
                 break
 
         logger.warning("🔄 Falling back from %s", provider_name)
 
     error_summary = " | ".join(errors) if errors else "Internal Error"
-    return False, f"⚠️ AI Offline: {error_summary}"
+    return False, f"⚠️ AI Offline: {error_summary} (Tried: {[p[0] for p in active_providers]})"
+async def _async_http_post(url: str, payload: dict, headers: dict, timeout_sec: int = 60) -> dict:
+    import sys
+    is_cloudflare = "js" in sys.modules
+    
+    # Ensure a valid User-Agent is present to prevent Cloudflare 1010 blocks in local python environments
+    headers = headers.copy()
+    if "User-Agent" not in headers:
+        headers["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    
+    if is_cloudflare:
+        import js
+        from pyodide.ffi import to_js
+        data_str = jsonlib.dumps(payload)
+        
+        opts = {
+            "method": "POST",
+            "headers": headers,
+            "body": data_str
+        }
+        js_options = to_js(opts, dict_converter=js.Object.fromEntries)
+        
+        controller = js.AbortController.new()
+        js_options.signal = controller.signal
+        
+        try:
+            response = await asyncio.wait_for(js.fetch(url, js_options), timeout=timeout_sec)
+            if not getattr(response, "ok", False):
+                text = await response.text()
+                raise Exception(f"HTTP {response.status}: {text}")
+            
+            js_json = await response.json()
+            return js_json.to_py() if hasattr(js_json, "to_py") else js_json
+        except asyncio.TimeoutError:
+            controller.abort()
+            raise Exception("URL Error: <urlopen error timed out>")
+        except Exception as e:
+            if "Timeout" in str(e) or "timed out" in str(e).lower():
+                raise Exception("URL Error: <urlopen error timed out>")
+            raise
+    else:
+        data_bytes = jsonlib.dumps(payload).encode('utf-8')
+        req = Request(url, data=data_bytes, headers=headers)
+        
+        def _make_req():
+            try:
+                with urlopen(req, timeout=timeout_sec) as response:
+                    return jsonlib.loads(response.read().decode('utf-8'))
+            except HTTPError as e:
+                raise Exception(f"HTTP {e.code}: {e.read().decode('utf-8')}")
+            except (URLError, TimeoutError) as e:
+                raise Exception(f"URL Error: {str(e)}")
+                
+        return await asyncio.to_thread(_make_req)
+
+# Tried in order. gemini-1.5-flash was hardcoded here and has been retired - it 404s,
+# which made the primary provider fail on every single request. Aliases are listed
+# first because they survive provider churn; pinned ids rot.
+_GEMINI_MODEL_CANDIDATES = [
+    "gemini-flash-latest",
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-3.1-flash-lite",
+]
+_cached_gemini_model = None
+
 
 async def _generate_gemini(api_key: str, prompt: str, system_prompt: str, temperature: float, max_tokens: int) -> str:
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
+    global _cached_gemini_model
+
+    order = list(_GEMINI_MODEL_CANDIDATES)
+    if _cached_gemini_model and _cached_gemini_model in order:
+        order.remove(_cached_gemini_model)
+        order.insert(0, _cached_gemini_model)
+
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "system_instruction": {"parts": [{"text": system_prompt}]},
         "generationConfig": {
             "temperature": temperature,
-            "maxOutputTokens": max_tokens
-        }
+            # Gemini 3.x bills internal reasoning against maxOutputTokens, so a tight
+            # budget returns an empty answer that looks like a success.
+            "maxOutputTokens": max(max_tokens, 2048),
+        },
     }
+
+    errors = []
+    for model in order:
+        # v1beta, not v1: v1 does not expose the current flash models.
+        # The key goes in a header rather than the query string so it cannot leak
+        # through request logs or referrers.
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+        headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
+        try:
+            result = await _async_http_post(url, payload, headers)
+
+            if isinstance(result, dict) and "error" in result:
+                err = result["error"]
+                message = err.get("message") or str(err)
+                # A retired model should move to the next candidate, not fail the
+                # whole provider.
+                if err.get("code") in (400, 404) or "not found" in message.lower():
+                    errors.append(f"{model}: {message[:80]}")
+                    continue
+                raise Exception(f"Gemini API Error: {message}")
+
+            if not isinstance(result, dict) or "candidates" not in result:
+                errors.append(f"{model}: invalid schema {str(result)[:80]}")
+                continue
+
+            parts = result["candidates"][0].get("content", {}).get("parts", [])
+            text = "".join(p.get("text", "") for p in parts)
+            if not text.strip():
+                errors.append(f"{model}: empty response")
+                continue
+
+            _cached_gemini_model = model
+            return text
+        except Exception as e:
+            msg = str(e)
+            # Auth and quota problems are not model-specific; retrying other models
+            # just burns time and hides the real cause.
+            if any(k in msg.lower() for k in ("401", "403", "429", "quota", "api key")):
+                raise Exception(f"Gemini failed: {msg}")
+            errors.append(f"{model}: {msg[:80]}")
+
+    raise Exception("Gemini failed: no usable model (" + " | ".join(errors) + ")")
+
+
+async def _async_http_get(url: str, headers: dict, timeout_sec: int = 30) -> dict:
+    import sys
+    import json as jsonlib
+    is_cloudflare = "js" in sys.modules
     
-    data = jsonlib.dumps(payload).encode('utf-8')
-    req = Request(url, data=data, headers={'Content-Type': 'application/json'})
+    headers = headers.copy()
+    if "User-Agent" not in headers:
+        headers["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        
+    if is_cloudflare:
+        import js
+        from pyodide.ffi import to_js
+        opts = {
+            "method": "GET",
+            "headers": headers
+        }
+        js_options = to_js(opts, dict_converter=js.Object.fromEntries)
+        controller = js.AbortController.new()
+        js_options.signal = controller.signal
+        try:
+            response = await asyncio.wait_for(js.fetch(url, js_options), timeout=timeout_sec)
+            if not getattr(response, "ok", False):
+                text = await response.text()
+                raise Exception(f"HTTP {response.status}: {text}")
+            js_json = await response.json()
+            return js_json.to_py() if hasattr(js_json, "to_py") else js_json
+        except asyncio.TimeoutError:
+            controller.abort()
+            raise Exception("URL Error: <urlopen error timed out>")
+        except Exception as e:
+            if "Timeout" in str(e) or "timed out" in str(e).lower():
+                raise Exception("URL Error: <urlopen error timed out>")
+            raise
+    else:
+        req = Request(url, headers=headers)
+        def _make_req():
+            try:
+                with urlopen(req, timeout=timeout_sec) as response:
+                    return jsonlib.loads(response.read().decode('utf-8'))
+            except HTTPError as e:
+                raise Exception(f"HTTP {e.code}: {e.read().decode('utf-8')}")
+            except (URLError, TimeoutError) as e:
+                raise Exception(f"URL Error: {str(e)}")
+        return await asyncio.to_thread(_make_req)
+
+_cached_groq_model = None
+
+async def _discover_groq_model(api_key: str) -> str:
+    global _cached_groq_model
+    if _cached_groq_model:
+        return _cached_groq_model
     try:
-        with urlopen(req, timeout=30) as response:
-            result = jsonlib.loads(response.read().decode('utf-8'))
-            return result['candidates'][0]['content']['parts'][0]['text']
-    except HTTPError as e:
-        raise Exception(f"HTTP {e.code}: {e.read().decode('utf-8')}")
-    except URLError as e:
-        raise Exception(f"URL Error: {e.reason}")
+        url = "https://api.groq.com/openai/v1/models"
+        headers = {'Authorization': f'Bearer {api_key}'}
+        res = await _async_http_get(url, headers)
+        if isinstance(res, dict) and "data" in res:
+            active_ids = [m["id"] for m in res["data"]]
+            qwen_models = [m for m in active_ids if "qwen" in m.lower()]
+            if qwen_models:
+                qwen_target = next((m for m in qwen_models if "qwen3.6" in m.lower() or "27b" in m.lower()), qwen_models[0])
+                _cached_groq_model = qwen_target
+                logger.info(f"Dynamically discovered Groq Qwen model: {_cached_groq_model}")
+                return _cached_groq_model
+                
+            llama_models = [m for m in active_ids if "llama-3.3" in m.lower() or "llama" in m.lower()]
+            if llama_models:
+                _cached_groq_model = llama_models[0]
+                logger.info(f"Dynamically discovered Groq Llama fallback: {_cached_groq_model}")
+                return _cached_groq_model
+    except Exception as e:
+        logger.warning(f"Failed to dynamically discover Groq models: {e}")
+        
+    _cached_groq_model = "qwen/qwen3.6-27b"
+    return _cached_groq_model
 
 async def _generate_groq(api_key: str, prompt: str, system_prompt: str, temperature: float, max_tokens: int) -> str:
-    url = "https://api.groq.com/openai/v1/chat/completions"
-    payload = {
-        "model": "llama-3.1-70b-versatile",
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt}
-        ],
-        "temperature": temperature,
-        "max_tokens": max_tokens
-    }
-    
-    data = jsonlib.dumps(payload).encode('utf-8')
-    req = Request(url, data=data, headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {api_key}'})
     try:
-        with urlopen(req, timeout=30) as response:
-            result = jsonlib.loads(response.read().decode('utf-8'))
-            return result['choices'][0]['message']['content']
-    except HTTPError as e:
-        raise Exception(f"HTTP {e.code}: {e.read().decode('utf-8')}")
-    except URLError as e:
-        raise Exception(f"URL Error: {e.reason}")
+        model = await _discover_groq_model(api_key)
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
+            ],
+        }
+        
+        if "qwen" in model.lower():
+            payload["max_completion_tokens"] = 4096
+            payload["reasoning_effort"] = "default"
+            payload["temperature"] = 0.6
+            payload["top_p"] = 0.95
+        else:
+            payload["temperature"] = temperature
+            payload["max_tokens"] = max_tokens
+            
+        headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {api_key}'}
+        result = await _async_http_post(url, payload, headers)
+        
+        if isinstance(result, dict) and "error" in result:
+            err = result["error"]
+            raise Exception(f"Groq API Error: {err.get('message') or str(err)}")
+            
+        if not isinstance(result, dict) or 'choices' not in result:
+            raise Exception(f"Invalid Groq response schema: {result}")
+            
+        return result['choices'][0]['message']['content']
+    except Exception as e:
+        raise Exception(f"Groq failed: {str(e)}")
 
 async def _generate_openrouter(api_key: str, prompt: str, system_prompt: str, temperature: float, max_tokens: int) -> str:
-    url = "https://openrouter.ai/api/v1/chat/completions"
-    payload = {
-        "model": "mistralai/mistral-7b-instruct:free",
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt}
-        ],
-        "temperature": temperature,
-        "max_tokens": max_tokens
-    }
+    # The ':free' variants were retired to paid; OpenRouter answers 404 with
+    # "This model is unavailable for free ... use this slug instead: <paid>".
+    # Free-tier slugs churn constantly, so keep a couple and expect them to rot -
+    # this list is the last resort behind Gemini and Groq.
+    models = [
+        "meta-llama/llama-3.3-70b-instruct",
+        "qwen/qwen3-coder",
+        "google/gemma-4-31b-it:free",
+        "meta-llama/llama-3.2-3b-instruct",
+    ]
     
-    data = jsonlib.dumps(payload).encode('utf-8')
-    req = Request(url, data=data, headers={
-        'Content-Type': 'application/json',
-        'Authorization': f'Bearer {api_key}',
-        'HTTP-Referer': 'https://prepgenie.ai',
-        'X-Title': 'PrepGenie'
-    })
-    try:
-        with urlopen(req, timeout=30) as response:
-            result = jsonlib.loads(response.read().decode('utf-8'))
+    last_err = None
+    for model in models:
+        try:
+            url = "https://openrouter.ai/api/v1/chat/completions"
+            payload = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": temperature,
+                "max_tokens": max_tokens
+            }
+            headers = {
+                'Content-Type': 'application/json',
+                'Authorization': f'Bearer {api_key}',
+                'HTTP-Referer': 'https://prepgenie.ai',
+                'X-Title': 'PrepGenie'
+            }
+            result = await _async_http_post(url, payload, headers)
+            
+            if isinstance(result, dict) and "error" in result:
+                err = result["error"]
+                raise Exception(f"OpenRouter Model {model} Error: {err.get('message') or str(err)}")
+                
+            if not isinstance(result, dict) or 'choices' not in result:
+                raise Exception(f"Invalid OpenRouter response schema for {model}: {result}")
+                
+            logger.info("✅ OpenRouter model %s succeeded!", model)
             return result['choices'][0]['message']['content']
-    except HTTPError as e:
-        raise Exception(f"HTTP {e.code}: {e.read().decode('utf-8')}")
-    except URLError as e:
-        raise Exception(f"URL Error: {e.reason}")
-
+        except Exception as e:
+            logger.warning("⚠️ OpenRouter model %s failed: %s. Trying next...", model, str(e))
+            last_err = e
+            
+    raise Exception(f"All OpenRouter models failed. Last error: {str(last_err)}")
 
 # ──────────────────────────────────────────────────────────────
 #  Branding Helper
@@ -215,7 +463,7 @@ DEFAULT_METRICS: Dict[str, float] = {
 METRIC_KEYS = list(DEFAULT_METRICS.keys())
 
 
-async def format_resume(raw_text: str) -> str:
+async def format_resume(raw_text: str, **kwargs) -> str:
     """Format raw resume text into a structured overview."""
     if not raw_text or not raw_text.strip():
         return "No resume data provided."
@@ -225,38 +473,36 @@ async def format_resume(raw_text: str) -> str:
         "Extract the candidate's name, experience, education, and skills from the above. "
         "Format everything into a single professional paragraph."
     )
-    ok, result = await generate(prompt)
+    ok, result = await generate(prompt, env=kwargs.get("env"))
     return result if ok else raw_text
 
 
-async def generate_questions(roles: List[str], resume_text: str) -> List[str]:
+async def generate_questions(roles: List[str], resume_text: str, **kwargs) -> List[str]:
     """Generate exactly 5 tailored interview questions."""
     if not roles or not resume_text or not resume_text.strip():
         return DEFAULT_QUESTIONS.copy()
 
     roles_str = ", ".join(roles)
 
-    prompt = f"""You are an expert technical interviewer.
+    prompt = f"""You are an expert technical interviewer for PrepGenie (by Samarth Agarwal).
 
 CANDIDATE PROFILE:
 {resume_text}
 
 TARGET ROLE(S): {roles_str}
 
-Generate EXACTLY 5 personalized interview questions. Distribution:
-1. Introduction/Background (based on resume)
-2. Technical Skills (specific to {roles_str})
-3. Behavioral (teamwork/collaboration)
-4. Problem-Solving (situational)
-5. Career Goals
+First, silently evaluate the resume to estimate the candidate's Years of Experience (YoE) and core tech stack.
+Then, generate EXACTLY 5 highly personalized, challenging interview questions tailored specifically to a {roles_str} at that estimated YoE tier.
 
-RULES:
-- Output ONLY 5 numbered questions (1-5), one per line
-- Each must end with a question mark
-- NO introductions, labels, or extra text
+RULES for the 5 questions:
+- Keep all questions tightly focused on the technical requirements, domain knowledge, and problem-solving expected for the {roles_str} role.
+- Replace basic generic behavioral questions with role-specific situational challenges (e.g. debugging scenarios, architecture decisions, or framework-specific nuances).
+- Output ONLY the 5 numbered questions (1-5), one per line. Do not output your YoE analysis, internal thoughts, or any <think> tags.
+- Each must end with a question mark.
+- NO introductions, labels, or extra text.
 """
 
-    ok, result = await generate(prompt)
+    ok, result = await generate(prompt, env=kwargs.get("env"))
     if not ok:
         logger.warning("Question generation failed, using defaults")
         return DEFAULT_QUESTIONS.copy()
@@ -265,7 +511,7 @@ RULES:
 
 
 async def generate_answer_feedback(
-    question: str, answer: str, resume: str
+    question: str, answer: str, resume: str, **kwargs
 ) -> Dict[str, Any]:
     """Generate feedback + metrics for a single answer."""
     default = {"feedback": "Answer received.", "metrics": DEFAULT_METRICS.copy()}
@@ -293,7 +539,7 @@ Adaptability and resilience: [0-10]
 Scoring: 0-3 poor, 4-5 below average, 6-7 good, 8-9 excellent, 10 outstanding.
 Be critical and fair. Scores must be plain numbers only."""
 
-    ok, result = await generate(prompt)
+    ok, result = await generate(prompt, env=kwargs.get("env"))
     if not ok:
         return default
 
@@ -304,6 +550,7 @@ async def generate_evaluation(
     resume_text: str,
     roles: List[str],
     interactions: Dict[str, str],
+    **kwargs,
 ) -> Dict[str, Any]:
     """
     Generate a comprehensive final evaluation.
@@ -374,12 +621,57 @@ Adaptability and resilience: [0-10]
 
 IMPORTANT: Vary scores based on actual answer quality. Short answers get 2-4. Detailed answers with examples get 7-9."""
 
-    ok, result = await generate(prompt, max_tokens=4096)
+    ok, result = await generate(prompt, max_tokens=4096, env=kwargs.get("env"))
     if ok and result and len(result) > 100:
         return _parse_evaluation(result)
     else:
         logger.warning("Evaluation AI failed, using fallback")
         return _fallback_evaluation(interactions, roles)
+
+
+async def chat_with_resume(resume_text: str, query: str, **kwargs) -> Dict[str, Any]:
+    """Chat with resume content."""
+    prompt = f"Resume:\n{resume_text}\n\nQuestion: {query}"
+    ok, result = await generate(
+        prompt,
+        system_prompt="You are a professional resume assistant for PrepGenie (by Samarth Agarwal). Provide direct, clean, and highly professional responses. NEVER output internal reasoning, <think> tags, or conversational fluff.",
+        max_tokens=1024,
+        env=kwargs.get("env"),
+    )
+    
+    if ok and result:
+        # Strip out any <think>...</think> blocks that might be returned by certain reasoning models
+        import re
+        # If there is content after the </think> tag, strip the think block.
+        # Otherwise, if the entire response is inside <think>...</think>, extract the content inside it.
+        think_match = re.search(r'<think>(.*?)</think>', result, flags=re.DOTALL)
+        actual_content = re.sub(r'<think>.*?</think>', '', result, flags=re.DOTALL).strip()
+        if actual_content:
+            result = actual_content
+        elif think_match:
+            result = think_match.group(1).strip()
+            
+    if not ok:
+        # Previously this replaced the failure with canned advice claiming 'high
+        # API traffic' and then set ok = True, so the API answered 200 with
+        # success:true and a fabricated answer. The stated reason was always the
+        # same regardless of the real cause, which made the actual fault
+        # (a retired Gemini model returning 404) invisible for months.
+        # `result` already holds the real chain from generate(), e.g.
+        # 'AI Offline: Gemini failed ... | Groq error ... (Tried: [...])'.
+        logger.error("chat_with_resume failed: %s", result)
+        return {
+            "success": False,
+            "response": "I could not generate an answer right now. The AI provider returned an error - please try again shortly.",
+            "error": result,
+            "creator": get_attribution(),
+        }
+    
+    return {
+        "success": ok,
+        "response": result,
+        "creator": get_attribution()
+    }
 
 
 # ──────────────────────────────────────────────────────────────
@@ -401,14 +693,26 @@ def _parse_questions(raw: str) -> List[str]:
             if line and "?" in line and line not in questions:
                 questions.append(line)
 
+    # Sanitize markdown and AI labels
+    cleaned = []
+    for q in questions:
+        # Strip bold/italic formatting
+        q = q.replace("**", "").replace("*", "")
+        # Strip prefixes like "Drafting Q1:", "Draft 1 (RAG):", "Question 2:", "Q1:"
+        q = re.sub(r"^(Drafting|Draft|Question|Q)[\w\s\(\)-]*:\s*", "", q, flags=re.IGNORECASE)
+        # Strip leading bullet/number variants that survived
+        q = re.sub(r"^[\d.\-*•\s]+", "", q).strip()
+        if q and q not in cleaned:
+            cleaned.append(q)
+
     # Pad with defaults
     for dq in DEFAULT_QUESTIONS:
-        if len(questions) >= 5:
+        if len(cleaned) >= 5:
             break
-        if dq not in questions:
-            questions.append(dq)
+        if dq not in cleaned:
+            cleaned.append(dq)
 
-    return questions[:5]
+    return cleaned[:5]
 
 
 def _parse_feedback(raw: str, default: Dict[str, Any]) -> Dict[str, Any]:
@@ -612,14 +916,17 @@ def _fallback_evaluation(interactions: Dict[str, str], roles: List[str]) -> Dict
     }
 
 
-def is_available() -> bool:
+def is_available(env: Any = None) -> bool:
     """Check if at least one AI provider is configured."""
-    return bool(os.getenv("GROQ_API_KEY") or os.getenv("GOOGLE_API_KEY") or os.getenv("OPENROUTER_API_KEY"))
+    return bool(_get_secret(env, "GROQ_API_KEY") 
+                or _get_secret(env, "GOOGLE_API_KEY") 
+                or _get_secret(env, "OPEN_ROUTER_API")
+                or _get_secret(env, "OPENROUTER_API_KEY"))
 
-def get_provider_status() -> Dict[str, str]:
+def get_provider_status(env: Any = None) -> Dict[str, str]:
     """Return the configuration status of each provider."""
     return {
-        "groq": "configured" if os.getenv("GROQ_API_KEY") else "not configured",
-        "gemini": "configured" if os.getenv("GOOGLE_API_KEY") else "not configured",
-        "openrouter": "configured" if os.getenv("OPENROUTER_API_KEY") else "not configured",
+        "groq": "configured" if _get_secret(env, "GROQ_API_KEY") else "not configured",
+        "gemini": "configured" if _get_secret(env, "GOOGLE_API_KEY") else "not configured",
+        "openrouter": "configured" if (_get_secret(env, "OPEN_ROUTER_API") or _get_secret(env, "OPENROUTER_API_KEY")) else "not configured",
     }
